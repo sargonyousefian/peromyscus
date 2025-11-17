@@ -1,0 +1,79 @@
+#!/bin/sh
+
+## This script uses sabre to demultiplex Peromyscus Library 3
+## Usage: sbatch run_sabre_lib3.sh
+
+#SBATCH --account=def-mcfarlas
+#SBATCH --time=0-4:00:00
+#SBATCH --nodes=1
+#SBATCH --mem=16000
+#SBATCH --ntasks-per-node=4
+#SBATCH --mail-user=sargon.yousefian@gmail.com
+#SBATCH --mail-type=END
+#SBATCH --job-name=sabre_lib3
+#SBATCH --output=sabre_lib3-%j.out
+
+## Load modules
+module load StdEnv/2020 intel/2020.1.217 sabre
+
+echo "========================================"
+echo "Starting demultiplexing with sabre"
+echo "Library: Peromyscus_Library_3"
+echo "Start time: $(date)"
+echo "========================================"
+
+## Define paths
+FASTQ_INPUT="/home/sydt/scratch/libraries/compressed/Peromyscus_Library_3_S77_L005_R1_001.fastq.gz"
+BARCODE_INDEX="/home/sydt/scratch/libraries/lib3_barcode-index_FIXED.txt"
+OUTPUT_DIR="/home/sydt/scratch/libraries/library3"
+UNKNOWN_OUTPUT="${OUTPUT_DIR}/unknown_barcode_Lib3.fq"
+
+## Create output directory if it doesn't exist
+mkdir -p ${OUTPUT_DIR}
+
+## Change to output directory so sabre writes files there
+cd ${OUTPUT_DIR}
+
+## Run sabre demultiplexing
+## -f: input fastq file (can be .gz compressed)
+## -b: barcode index file
+## -u: output file for reads with unknown barcodes
+## -m: number of mismatches allowed (2)
+
+sabre se -f ${FASTQ_INPUT} -b ${BARCODE_INDEX} -u ${UNKNOWN_OUTPUT} -m 2
+
+## Print completion info
+echo "========================================"
+echo "Demultiplexing completed!"
+echo "End time: $(date)"
+echo "========================================"
+echo "Output directory: ${OUTPUT_DIR}"
+echo ""
+echo "Output files:"
+ls -lh ${OUTPUT_DIR}/*.fq 2>/dev/null | head -20
+echo ""
+echo "Total .fq files created:"
+ls -1 ${OUTPUT_DIR}/*.fq 2>/dev/null | wc -l
+echo ""
+
+## Count reads in unknown barcode file
+if [ -f ${UNKNOWN_OUTPUT} ]; then
+    UNKNOWN_COUNT=$(cat ${UNKNOWN_OUTPUT} | wc -l)
+    UNKNOWN_READS=$((UNKNOWN_COUNT / 4))
+    echo "Reads with unknown barcodes: ${UNKNOWN_READS}"
+    echo ""
+fi
+
+## Summary statistics for first 10 samples
+echo "Sample read counts (first 10 samples):"
+for fq_file in ${OUTPUT_DIR}/Peromyscus*.fq; do
+    if [ -f "$fq_file" ]; then
+        COUNT=$(cat "$fq_file" | wc -l)
+        READS=$((COUNT / 4))
+        SAMPLE=$(basename "$fq_file")
+        printf "%-25s %10d reads\n" "$SAMPLE" "$READS"
+    fi
+done | head -10
+
+echo ""
+echo "All done now"
