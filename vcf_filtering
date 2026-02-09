@@ -5,7 +5,7 @@ vcftools --gzvcf /home/sydt/scratch/filtering/merged_all_samples.vcf.gz \
 --minDP 3 \
 --recode \
 --recode-INFO-all \
---out peromysucs_mac3_Q30_miss0.25_dp3
+--out peromyscus_mac3_Q30_miss0.25_dp3
 
 vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3.recode.vcf --missing-indv --out missing_indv
 
