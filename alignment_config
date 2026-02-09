@@ -1,0 +1,110 @@
+// nextflow.config for Peromyscus alignment using existing BWA index
+
+// Parameter definitions
+params {
+    // Input/Output paths
+    input = "/home/sydt/scratch/libraries/library1/*.fq"
+    outdir = "/home/sydt/scratch/alignment/lib1_aligned"
+    
+    // BWA index prefix - use the existing bwa_genome_index files
+    // BWA expects the prefix without the extension
+    // So for files: bwa_genome_index.amb, .ann, .bwt, .pac, .sa
+    // The prefix is: bwa_genome_index
+    bwa_index_prefix = "/home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna"
+
+    // General resources
+    max_memory = 32.GB
+    max_cpus = 8
+    max_time = 24.h
+}
+
+// Profiles
+profiles {
+    standard {
+        process.executor = 'slurm'
+    }
+    
+    local {
+        process.executor = 'local'
+    }
+}
+
+// Process configurations
+process {
+    executor = 'slurm'
+    clusterOptions = '--account=def-mcfarlas'
+    
+    // Error handling
+    errorStrategy = { task.attempt <= 3 ? 'retry' : 'finish' }
+    maxRetries = 3
+    maxErrors = -1
+
+    withName: ALIGN_AND_SORT {
+        cpus = 4
+        memory = '16 GB'
+        time = '20h'
+        module = 'StdEnv/2023:bwa/0.7.17:samtools/1.22.1'
+    }
+
+    withName: SAMTOOLS_DEPTH {
+        cpus = 2
+        memory = '4 GB'
+        time = '2h'
+        module = 'StdEnv/2023:samtools/1.22.1'
+    }
+
+    withName: FASTQC {
+        cpus = 1
+        memory = '4 GB'
+        time = '2h'
+        module = 'StdEnv/2023:fastqc/0.12.1'
+    }
+
+    withName: FASTP {
+        cpus = 2
+        memory = '4 GB'
+        time = '4h'
+        module = 'StdEnv/2023:fastp/0.24.0'
+    }
+
+    withName: FASTQC_RAW {
+        cpus = 1
+        memory = '4 GB'
+        time = '2h'
+        module = 'StdEnv/2023:fastqc/0.12.1'
+    }
+
+    withName: FASTQC_TRIMMED {
+        cpus = 1
+        memory = '4 GB'
+        time = '2h'
+        module = 'StdEnv/2023:fastqc/0.12.1'
+    }
+}
+
+// Executor configurations
+executor {
+    queueSize = 100
+    submitRateLimit = '10 sec'
+
+    $slurm {
+        queueSize = 50
+    }
+}
+
+// Reporting configurations
+timeline {
+    enabled = true
+    file = "${params.outdir}/execution_timeline.html"
+}
+
+report {
+    enabled = true
+    file = "${params.outdir}/execution_report.html"
+}
+
+trace {
+    enabled = true
+    file = "${params.outdir}/execution_trace.txt"
+    fields = 'task_id,hash,native_id,process,tag,name,status,exit,module,cpus,time,disk,memory,attempt,submit,start,complete,duration,realtime,queue,%cpu,%mem,rss,vmem,peak_rss,peak_vmem'
+}
