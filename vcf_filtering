@@ -1,0 +1,24 @@
+vcftools --gzvcf /home/sydt/scratch/filtering/merged_all_samples.vcf.gz \
+--mac 3 \
+--minQ 30 \
+--max-missing 0.25 \
+--minDP 3 \
+--recode \
+--recode-INFO-all \
+--out peromysucs_mac3_Q30_miss0.25_dp3
+
+vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3.recode.vcf --missing-indv --out missing_indv
+
+mawk '$5 > 0.995' missing_indv.imiss | cut -f1 > lowDP.indv
+
+vcftools --vcf peromysucs_mac3_Q30_miss0.25_dp3.recode.vcf \
+--remove  lowDP.indv \
+--recode \
+--recode-INFO-all \
+--out peromyscus_mac3_Q30_miss0.25_dp3_ind995
+
+vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind995.recode.vcf \
+    --maf 0.01 \
+    --recode \
+    --recode-INFO-all \
+    --out peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001
