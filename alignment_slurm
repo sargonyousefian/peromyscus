@@ -1,0 +1,30 @@
+#!/bin/bash
+#SBATCH --account=def-mcfarlas
+#SBATCH --time=48:00:00
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --job-name=nextflow_gbs_full
+#SBATCH --output=nextflow_gbs_full_%j.out
+#SBATCH --error=nextflow_gbs_full_%j.err
+
+module load nextflow
+
+OUTDIR="/home/sydt/scratch/alignment/library1"
+mkdir -p $OUTDIR
+
+echo "Running GBS alignment on ALL samples"
+echo "Expected mapping rate: 20-40% (normal for GBS)"
+
+nextflow run align_with_fastp.nf \
+    -c nextflow.config \
+    --input "/home/sydt/scratch/libraries/library1/*.fq" \
+    --outdir "$OUTDIR" \
+    --bwa_index_prefix "/home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna" \
+    -resume \
+    -with-report $OUTDIR/execution_report.html \
+    -with-timeline $OUTDIR/execution_timeline.html \
+    -with-trace $OUTDIR/execution_trace.txt
+
+echo "Pipeline completed!"
+echo "Summary of mapping rates:"
+cat $OUTDIR/stats/*.flagstat | grep "mapped (" | awk '{print $5}' | sort -n | uniq -c
