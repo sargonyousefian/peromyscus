@@ -11,7 +11,7 @@ vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3.recode.vcf --missing-indv --out 
 
 mawk '$5 > 0.995' missing_indv.imiss | cut -f1 > lowDP.indv
 
-vcftools --vcf peromysucs_mac3_Q30_miss0.25_dp3.recode.vcf \
+vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3.recode.vcf \
 --remove  lowDP.indv \
 --recode \
 --recode-INFO-all \
