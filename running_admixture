@@ -3,4 +3,18 @@
 # --double-id is because some ID have underscore, --allow-extra-chr and --ch-set is because of issues with the chromosome naming from NCBI
 plink --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf --double-id --allow-extra-chr --chr-set 95 --make-bed --out peromyscus_ind999_fresh
 
+# Fix chromosome codes
+awk 'BEGIN{OFS="\t"} {
+    if (!chr_map[$1]) {
+        chr_map[$1] = ++chr_count
+    }
+    $1 = chr_map[$1]
+    print
+}' peromyscus_ind999_fresh.bim > peromyscus_ind999_admixture_ready.bim
+
+# Copy the other files
+cp peromyscus_ind999_fresh.bed peromyscus_ind999_admixture_ready.bed
+cp peromyscus_ind999_fresh.fam peromyscus_ind999_admixture_ready.fam
+
+
 admixture peromyscus_ind999_admixture_ready.bed 2
