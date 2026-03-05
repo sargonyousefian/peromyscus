@@ -1,0 +1,6 @@
+# cannot run jobs longer than 7 days on compute canada, so I cannot run entropy on all my SNPs and inviduals. I will be running admixture first and then grab the top diagnostic markers and run entropy on those
+# first i need to conver my .vcf file for admixture, i will use plink
+# --double-id is because some ID have underscore, --allow-extra-chr and --ch-set is because of issues with the chromosome naming from NCBI
+plink --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf --double-id --allow-extra-chr --chr-set 95 --make-bed --out peromyscus_ind999_fresh
+
+admixture peromyscus_ind999_admixture_ready.bed 2
