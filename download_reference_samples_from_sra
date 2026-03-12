@@ -1,21 +1,23 @@
+#!/bin/bash
+#SBATCH --time=4:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=1
+#SBATCH --job-name=sra_download
+#SBATCH --mail-user=sargon.yousefian@gmail.com
+#SBATCH --mail-type=ALL
+
 module load sra-toolkit
 
-# Create a list of accession numbers
-cat << 'EOF' > accession_list.txt
-SRR32555344
-SRR32555345
-SRR32555346
-SRR32555347
-SRR32555394
-EOF
+cd /home/sydt/scratch/mgpl_file/final_results/leucopus
 
-# Download each accession
-echo "Starting SRA downloads..."
+# List of accessions
+accessions="SRR32555344 SRR32555345 SRR32555346 SRR32555347 SRR32555394"
 
-for accession in $(cat accession_list.txt); do
-    echo "Downloading $accession..."
+for accession in $accessions; do
+    echo "Starting download of $accession at $(date)"
     fastq-dump --split-files --gzip $accession
-    echo "Completed $accession"
+    echo "Completed $accession at $(date)"
 done
 
 echo "All downloads completed!"
+EOF
