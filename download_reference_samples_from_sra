@@ -1,0 +1,21 @@
+module load sra-toolkit
+
+# Create a list of accession numbers
+cat << 'EOF' > accession_list.txt
+SRR32555344
+SRR32555345
+SRR32555346
+SRR32555347
+SRR32555394
+EOF
+
+# Download each accession
+echo "Starting SRA downloads..."
+
+for accession in $(cat accession_list.txt); do
+    echo "Downloading $accession..."
+    fastq-dump --split-files --gzip $accession
+    echo "Completed $accession"
+done
+
+echo "All downloads completed!"
