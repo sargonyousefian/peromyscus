@@ -8,10 +8,10 @@
 
 module load sra-toolkit
 
-cd /home/sydt/scratch/mgpl_file/final_results/leucopus
+cd /home/sydt/scratch/mgpl_file/final_results/maniculatus
 
-# List of accessions
-accessions="SRR32555344 SRR32555345 SRR32555346 SRR32555347 SRR32555394"
+# List of accessions (no spaces around =)
+accessions="SRR35733630 SRR35733634 SRR35733636 SRR35733637 SRR35733639"
 
 for accession in $accessions; do
     echo "Starting download of $accession at $(date)"
@@ -20,4 +20,3 @@ for accession in $accessions; do
 done
 
 echo "All downloads completed!"
-EOF
