@@ -1,0 +1,7 @@
+# For ind995 - extract top 5000 by delta
+echo "Extracting top 5000 SNPs by delta for ind995..."
+sort -k9,9nr ind995_top5000_diagnostic_snps.txt | head -5000 > ind995_top5000_by_delta.txt
+
+# For ind999 - extract top 5000 by delta  
+echo "Extracting top 5000 SNPs by delta for ind999..."
+sort -k9,9nr ind999_top5000_diagnostic_snps.txt | head -5000 > ind999_top5000_by_delta.txt
