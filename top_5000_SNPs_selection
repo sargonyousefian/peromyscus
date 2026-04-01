@@ -1,0 +1,20 @@
+# changing chromosome position name, i believe i had to change it while doing admixture the first tipe to select the top 5000 snps
+awk '{
+  chr=$1+1;
+  if(chr==1) chrom="NC_039921.1";
+  else if(chr>=2 && chr<=25) chrom="NC_"(134850+chr)".1";
+  print chrom"\t"$4
+}' /home/sydt/scratch/mgpl_file/final_results/ind999_top5000_by_delta.txt > snp_positions_ind999.txt
+
+# keeping only top 5000 SNPs
+vcftools --vcf /home/sydt/scratch/mgpl_file/original_data/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf \
+    --positions snp_positions_ind999.txt \
+    --recode --recode-INFO-all \
+    --out peromyscus_ind999_top5000
+
+# add reference genome
+
+awk 'BEGIN{OFS="\t"} 
+/^##/ {print; next} 
+/^#CHROM/ {print $0, "REFERENCE_MANICULATUS"; next} 
+{print $0, "0/0:.:.:.:.:."}'  peromyscus_ind999_top5000.recode.vcf > peromyscus_ind999_with_reference.vcf
