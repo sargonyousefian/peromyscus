@@ -1,3 +1,10 @@
+Selecting top5000 SNPS based on |freq_pop1 - freq_pop2|
+
+awk '{diff=($1-$2); if(diff<0) diff=-diff; print diff, NR}' peromyscus_ind999_admixture_ready.2.P | \
+    sort -k1 -gr | \
+    head -5000 | \
+    awk '{print $2}' > top5000_TRUE_delta.txt
+
 # changing chromosome position name, i believe i had to change it while doing admixture the first tipe to select the top 5000 snps
 awk '{
   chr=$1+1;
