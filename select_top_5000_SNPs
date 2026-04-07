@@ -5,3 +5,40 @@ sort -k9,9nr ind995_top5000_diagnostic_snps.txt | head -5000 > ind995_top5000_by
 # For ind999 - extract top 5000 by delta  
 echo "Extracting top 5000 SNPs by delta for ind999..."
 sort -k9,9nr ind999_top5000_diagnostic_snps.txt | head -5000 > ind999_top5000_by_delta.txt
+
+# Create positions file for ind995 using the same mapping
+awk '{
+  chr=$1;
+  if(chr==1) chrom="NC_134852.1";
+  else if(chr==2) chrom="NC_134853.1";
+  else if(chr==3) chrom="NC_134854.1";
+  else if(chr==4) chrom="NC_134855.1";
+  else if(chr==5) chrom="NC_134856.1";
+  else if(chr==6) chrom="NC_134857.1";
+  else if(chr==7) chrom="NC_134858.1";
+  else if(chr==8) chrom="NC_134859.1";
+  else if(chr==9) chrom="NC_134860.1";
+  else if(chr==10) chrom="NC_134861.1";
+  else if(chr==11) chrom="NC_134862.1";
+  else if(chr==12) chrom="NC_134863.1";
+  else if(chr==13) chrom="NC_134864.1";
+  else if(chr==14) chrom="NC_134865.1";
+  else if(chr==15) chrom="NC_134866.1";
+  else if(chr==16) chrom="NC_134867.1";
+  else if(chr==17) chrom="NC_134868.1";
+  else if(chr==18) chrom="NC_134869.1";
+  else if(chr==19) chrom="NC_134870.1";
+  else if(chr==20) chrom="NC_134871.1";
+  else if(chr==21) chrom="NC_134872.1";
+  else if(chr==22) chrom="NC_134873.1";
+  else if(chr==23) chrom="NC_134874.1";
+  else if(chr==24) chrom="NC_134875.1";
+  else if(chr==25) chrom="NC_039921.1";
+  else chrom="unknown";
+  print chrom"\t"$4
+}' /home/sydt/scratch/mgpl_file/final_results/ind995_top5000_by_delta.txt > positions_ind995_final.txt
+
+vcftools --vcf /home/sydt/scratch/mgpl_file/original_data/peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf \
+    --positions positions_ind995_final.txt \
+    --recode --recode-INFO-all \
+    --out peromyscus_ind995_top5000_CORRECT
