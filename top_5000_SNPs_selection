@@ -1,4 +1,5 @@
 Selecting top5000 SNPS based on |freq_pop1 - freq_pop2|
+Use the code above to generate high-quality diagnostic SNP sets from any ADMIXTURE .P file. The key is using sort -k1 -gr for proper numeric sorting of deltas, including those in scientific notation. 
 
 awk '{diff=($1-$2); if(diff<0) diff=-diff; print diff, NR}' peromyscus_ind999_admixture_ready.2.P | \
     sort -k1 -gr | \
