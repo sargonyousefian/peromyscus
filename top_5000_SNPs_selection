@@ -1,28 +1,84 @@
-Selecting top5000 SNPS based on |freq_pop1 - freq_pop2|
-Use the code above to generate high-quality diagnostic SNP sets from any ADMIXTURE .P file. The key is using sort -k1 -gr for proper numeric sorting of deltas, including those in scientific notation. 
+# Navigate to the ind995 directory
+cd /home/sydt/scratch/mgpl_file/top_snps_selection/ind995
 
-awk '{diff=($1-$2); if(diff<0) diff=-diff; print diff, NR}' peromyscus_ind999_admixture_ready.2.P | \
+# Load required modules
+module load bcftools/1.22
+module load plink/1.9b_6.21-x86_64
+module load admixture
+
+# Step 1: Create chromosome mapping
+echo "Creating chromosome mapping..."
+bcftools query -f '%CHROM\n' peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf | \
+    sort -u > chrom_names.txt
+
+awk '{print $1, NR}' chrom_names.txt > chrom_map.txt
+
+# Step 2: Rename chromosomes to integers
+echo "Renaming chromosomes to integers..."
+bcftools annotate --rename-chrs chrom_map.txt \
+    peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf \
+    -o peromyscus_integer_chroms.vcf
+
+# Step 3: Convert to PLINK format
+echo "Converting to PLINK format..."
+plink --vcf peromyscus_integer_chroms.vcf \
+      --make-bed \
+      --out peromyscus_admixture_ready \
+      --set-missing-var-ids @:# \
+      --double-id
+
+# Step 4: Run ADMIXTURE (K=2)
+echo "Running ADMIXTURE (K=2)..."
+admixture --cv peromyscus_admixture_ready.bed 2 > admixture_log.txt 2>&1
+
+# Step 5: Extract top 5000 indices from .P file
+echo "Extracting top 5000 SNP indices..."
+awk '{diff=($1-$2); if(diff<0) diff=-diff; print diff, NR}' peromyscus_admixture_ready.2.P | \
     sort -k1 -gr | \
     head -5000 | \
-    awk '{print $2}' > top5000_TRUE_delta.txt
+    awk '{print $2}' > top5000_indices.txt
 
-# changing chromosome position name, i believe i had to change it while doing admixture the first tipe to select the top 5000 snps
-awk '{
-  chr=$1+1;
-  if(chr==1) chrom="NC_039921.1";
-  else if(chr>=2 && chr<=25) chrom="NC_"(134850+chr)".1";
-  print chrom"\t"$4
-}' /home/sydt/scratch/mgpl_file/final_results/ind999_top5000_by_delta.txt > snp_positions_ind999.txt
+# Step 6: Extract header from original VCF
+echo "Extracting VCF header..."
+bcftools view -h peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf > header.txt
 
-# keeping only top 5000 SNPs
-vcftools --vcf /home/sydt/scratch/mgpl_file/original_data/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf \
-    --positions snp_positions_ind999.txt \
-    --recode --recode-INFO-all \
-    --out peromyscus_ind999_top5000
+# Step 7: Extract body and filter by line number
+echo "Filtering SNPs..."
+bcftools view -H peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf | \
+    awk 'NR==FNR {keep[$1]=1; next} FNR in keep' \
+    top5000_indices.txt - \
+    > body.txt
 
-# add reference genome
+# Step 8: Combine header and body
+cat header.txt body.txt > peromyscus_ind995_top5000_snps.vcf
 
-awk 'BEGIN{OFS="\t"} 
-/^##/ {print; next} 
-/^#CHROM/ {print $0, "REFERENCE_MANICULATUS"; next} 
-{print $0, "0/0:.:.:.:.:."}'  peromyscus_ind999_top5000.recode.vcf > peromyscus_ind999_with_reference.vcf
+# Step 9: Compress and index
+bgzip peromyscus_ind995_top5000_snps.vcf
+tabix peromyscus_ind995_top5000_snps.vcf.gz
+
+# Step 10: Create the delta values file (sorted by delta)
+awk '{diff=($1-$2); if(diff<0) diff=-diff; print diff, NR}' peromyscus_admixture_ready.2.P | \
+    sort -k1 -gr | \
+    head -5000 > top5000_with_delta.txt
+
+# Step 11: Create complete info file with indices, CHROM, POS, and delta
+# Get positions with indices
+bcftools query -f '%CHROM\t%POS\n' peromyscus_mac3_Q30_miss0.25_dp3_ind995_maf001.recode.vcf | \
+    awk '{print NR, $1, $2}' > snp_positions_with_index.txt
+
+# Get delta values with indices
+awk '{diff=($1-$2); if(diff<0) diff=-diff; print NR, diff}' \
+    peromyscus_admixture_ready.2.P > snp_deltas_with_index.txt
+
+# Join to get complete info
+join -j1 snp_positions_with_index.txt snp_deltas_with_index.txt > all_snps_complete.txt
+
+# Extract top 5000
+awk 'NR==FNR {keep[$1]=1; next} keep[$1]' \
+    top5000_indices.txt \
+    all_snps_complete.txt \
+    > peromyscus_ind995_top5000_complete_info.txt
+
+# Create sorted by delta file
+sort -k4 -gr peromyscus_ind995_top5000_complete_info.txt > peromyscus_ind995_top5000_deltas.txt
+
