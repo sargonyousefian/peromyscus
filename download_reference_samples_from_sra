@@ -1,22 +1,86 @@
 #!/bin/bash
-#SBATCH --time=4:00:00
-#SBATCH --mem=8G
-#SBATCH --cpus-per-task=1
-#SBATCH --job-name=sra_download
+#SBATCH --job-name=SRA_forward_SRR32555394
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=48:00:00
+#SBATCH --output=SRA_forward_SRR32555394_%j.out
+#SBATCH --error=SRA_forward_SRR32555394_%j.err
+#SBATCH --account=def-mcfarlas
 #SBATCH --mail-user=sargon.yousefian@gmail.com
 #SBATCH --mail-type=ALL
 
+# Load the required module
 module load sra-toolkit
 
-cd /home/sydt/scratch/mgpl_file/final_results/maniculatus
+# Go to your working directory
+cd /home/sydt/scratch/mgpl_file/add_known_genome
 
-# List of accessions (no spaces around =)
-accessions="SRR35733630 SRR35733634 SRR35733636 SRR35733637 SRR35733639"
+echo "========================================="
+echo "Job started at $(date)"
+echo "Working directory: $(pwd)"
+echo "Downloading SRR32555394 (forward reads only)"
+echo "========================================="
+echo ""
 
-for accession in $accessions; do
-    echo "Starting download of $accession at $(date)"
-    fastq-dump --split-files --gzip $accession
-    echo "Completed $accession at $(date)"
-done
+# Step 1: Download the SRA file
+echo "Step 1/4: Downloading SRA file at $(date)"
+prefetch SRR32555394 -X 100G
 
-echo "All downloads completed!"
+# Check if download succeeded
+if [ $? -eq 0 ]; then
+    echo "✓ Download completed successfully at $(date)"
+else
+    echo "✗ Download failed at $(date)"
+    exit 1
+fi
+echo ""
+
+# Step 2: Convert to FASTQ (paired-end)
+echo "Step 2/4: Converting to FASTQ at $(date)"
+fasterq-dump SRR32555394 --split-files -e 8 -p
+
+if [ $? -eq 0 ]; then
+    echo "✓ Conversion completed successfully at $(date)"
+else
+    echo "✗ Conversion failed at $(date)"
+    exit 1
+fi
+echo ""
+
+# Step 3: Compress both files
+echo "Step 3/4: Compressing FASTQ files at $(date)"
+gzip SRR32555394_1.fastq
+gzip SRR32555394_2.fastq
+echo "✓ Compression completed at $(date)"
+echo ""
+
+# Step 4: Delete reverse reads (keep only forward)
+echo "Step 4/4: Removing reverse reads (keeping only forward)"
+rm -f SRR32555394_2.fastq.gz
+echo "✓ Reverse reads deleted"
+echo ""
+
+# Optional: Delete the original .sra file to save space
+echo "Cleaning up: Removing original .sra file"
+rm -f ~/ncbi/public/sra/SRR32555394.sra
+echo "✓ Cleanup complete"
+echo ""
+
+# Show final results
+echo "========================================="
+echo "JOB COMPLETED at $(date)"
+echo "========================================="
+echo ""
+echo "Final file in directory:"
+ls -lh SRR32555394_1.fastq.gz
+echo ""
+echo "File size:"
+du -h SRR32555394_1.fastq.gz
+echo ""
+echo "========================================="
+echo "Success! You now have forward reads only for SRR32555394."
+echo "Location: /home/sydt/scratch/mgpl_file/add_known_genome/"
+echo "File: SRR32555394_1.fastq.gz"
+echo "========================================="
