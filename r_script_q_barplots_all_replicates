@@ -1,0 +1,155 @@
+###this is running in r studio after i downloaded the entorpy output file into my local computer
+
+# Load libraries
+library(rhdf5)
+library(RColorBrewer)
+
+# Set working directory
+setwd("/Users/sargon/Desktop/masters/Bioinformatics/entropy_ind999_prelim")
+
+# =============================================
+# Function to view barplot for ONE replicate
+# =============================================
+
+view_barplot <- function(hdf5_file, k, rep_num) {
+  
+  # Read Q matrix: dimensions [MCMC_samples, K, individuals]
+  q_data <- h5read(hdf5_file, "q")
+  
+  # Calculate mean across MCMC samples (dimension 1)
+  q_mean <- apply(q_data, c(2,3), mean)
+  
+  # Transpose to [individuals, K]
+  q_mean <- t(q_mean)
+  
+  # Sort individuals by Pop1 ancestry (for K=2) or by max ancestry (for K>=3)
+  if(k == 2) {
+    order_idx <- order(q_mean[,1])
+  } else {
+    max_ancestry <- apply(q_mean, 1, max)
+    order_idx <- order(max_ancestry, decreasing = FALSE)
+  }
+  
+  q_sorted <- q_mean[order_idx, ]
+  
+  # Set colors
+  if(k == 2) {
+    colours <- c("#66C2A5", "#FC8D62")
+  } else if(k == 3) {
+    colours <- c("#66C2A5", "#FC8D62", "#8DA0CB")
+  } else {
+    colours <- brewer.pal(k, "Set3")
+  }
+  
+  # Create barplot in RStudio plot window
+  par(mar = c(6, 4, 4, 2) + 0.1)
+  
+  barplot(t(q_sorted), 
+          beside = FALSE,
+          col = colours[1:k],
+          names.arg = rep("", nrow(q_sorted)),
+          border = NA,
+          main = paste("Peromyscus - K =", k, "(Replicate", rep_num, ")"),
+          ylab = "Proportion of ancestry",
+          xlab = "Individuals (sorted)",
+          space = 0,
+          width = 1)
+  
+  legend("topright", 
+         legend = paste0("Population ", 1:k), 
+         fill = colours[1:k],
+         cex = 0.9,
+         bg = "white")
+}
+
+# =============================================
+# View each barplot (one at a time)
+# =============================================
+
+# View K=2 Replicate 1
+view_barplot("peromyscus_ind999_with_reference_k2_150k_rep1_qk2inds.hdf5", k=2, rep_num=1)
+
+# After viewing, press Enter to see next plot
+readline(prompt="Press [Enter] to see next plot")
+
+# View K=2 Replicate 2
+view_barplot("peromyscus_ind999_with_reference_k2_150k_rep2_qk2inds.hdf5", k=2, rep_num=2)
+
+readline(prompt="Press [Enter] to see next plot")
+
+# View K=2 Replicate 3
+view_barplot("peromyscus_ind999_with_reference_k2_150k_rep3_qk2inds.hdf5", k=2, rep_num=3)
+
+readline(prompt="Press [Enter] to see next plot")
+
+# View K=3 Replicate 1
+view_barplot("peromyscus_ind999_with_reference_k3_150k_rep1_qk3inds.hdf5", k=3, rep_num=1)
+
+readline(prompt="Press [Enter] to see next plot")
+
+# View K=3 Replicate 2
+view_barplot("peromyscus_ind999_with_reference_k3_150k_rep2_qk3inds.hdf5", k=3, rep_num=2)
+
+readline(prompt="Press [Enter] to see next plot")
+
+# View K=3 Replicate 3
+view_barplot("peromyscus_ind999_with_reference_k3_150k_rep3_qk3inds.hdf5", k=3, rep_num=3)
+
+#### view all 6 figures in a 3x2 grid
+# Load libraries
+library(rhdf5)
+library(RColorBrewer)
+
+# Set working directory
+setwd("/Users/sargon/Desktop/masters/Bioinformatics/entropy_ind999_prelim")
+
+# Function to get sorted Q matrix
+get_sorted_q <- function(hdf5_file, k) {
+  q_data <- h5read(hdf5_file, "q")
+  q_mean <- apply(q_data, c(2,3), mean)
+  q_mean <- t(q_mean)
+  
+  if(k == 2) {
+    order_idx <- order(q_mean[,1])
+  } else {
+    max_ancestry <- apply(q_mean, 1, max)
+    order_idx <- order(max_ancestry, decreasing = FALSE)
+  }
+  return(q_mean[order_idx, ])
+}
+
+# Set colors
+colours_k2 <- c("#66C2A5", "#FC8D62")
+colours_k3 <- c("#66C2A5", "#FC8D62", "#8DA0CB")
+
+# Create a 2x3 grid (2 rows, 3 columns)
+par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
+
+# K=2 Replicates
+q1 <- get_sorted_q("peromyscus_ind999_with_reference_k2_150k_rep1_qk2inds.hdf5", 2)
+barplot(t(q1), beside=F, col=colours_k2, names.arg=rep("", nrow(q1)), 
+        border=NA, main="K=2 Rep1", ylab="Ancestry", space=0, width=1)
+
+q2 <- get_sorted_q("peromyscus_ind999_with_reference_k2_150k_rep2_qk2inds.hdf5", 2)
+barplot(t(q2), beside=F, col=colours_k2, names.arg=rep("", nrow(q2)), 
+        border=NA, main="K=2 Rep2", ylab="Ancestry", space=0, width=1)
+
+q3 <- get_sorted_q("peromyscus_ind999_with_reference_k2_150k_rep3_qk2inds.hdf5", 2)
+barplot(t(q3), beside=F, col=colours_k2, names.arg=rep("", nrow(q3)), 
+        border=NA, main="K=2 Rep3", ylab="Ancestry", space=0, width=1)
+
+# K=3 Replicates
+q4 <- get_sorted_q("peromyscus_ind999_with_reference_k3_150k_rep1_qk3inds.hdf5", 3)
+barplot(t(q4), beside=F, col=colours_k3, names.arg=rep("", nrow(q4)), 
+        border=NA, main="K=3 Rep1", ylab="Ancestry", space=0, width=1)
+
+q5 <- get_sorted_q("peromyscus_ind999_with_reference_k3_150k_rep2_qk3inds.hdf5", 3)
+barplot(t(q5), beside=F, col=colours_k3, names.arg=rep("", nrow(q5)), 
+        border=NA, main="K=3 Rep2", ylab="Ancestry", space=0, width=1)
+
+q6 <- get_sorted_q("peromyscus_ind999_with_reference_k3_150k_rep3_qk3inds.hdf5", 3)
+barplot(t(q6), beside=F, col=colours_k3, names.arg=rep("", nrow(q6)), 
+        border=NA, main="K=3 Rep3", ylab="Ancestry", space=0, width=1)
+
+# Reset plotting layout
+par(mfrow = c(1, 1))
