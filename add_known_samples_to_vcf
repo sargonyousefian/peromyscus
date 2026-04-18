@@ -1,0 +1,45 @@
+#### this was done after aligning the known samples to the same reference genome
+
+# Process maniculatus (full)
+echo "Processing maniculatus..."
+bcftools mpileup -f /home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna \
+    -T /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps.vcf.gz \
+    maniculatus.bam | \
+    bcftools call -c -Oz -o maniculatus_targeted.vcf.gz
+
+# Process leucopus
+echo "Processing leucopus..."
+bcftools mpileup -f /home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna \
+    -T /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps.vcf.gz \
+    leucopus.bam | \
+    bcftools call -c -Oz -o leucopus_targeted.vcf.gz
+
+# Index both
+echo "Indexing..."
+tabix -f maniculatus_targeted.vcf.gz
+tabix -f leucopus_targeted.vcf.gz
+
+# Merge with existing VCF
+echo "Merging VCFs..."
+bcftools merge \
+    /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps.vcf.gz \
+    maniculatus_targeted.vcf.gz \
+    leucopus_targeted.vcf.gz \
+    -Oz -o /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps_with_new.vcf.gz
+
+# Index final VCF
+tabix -f /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps_with_new.vcf.gz
+
+# Verify
+echo ""
+echo "=== Verification ==="
+echo "Samples in new VCF:"
+bcftools query -l /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps_with_new.vcf.gz | tail -5
+
+echo ""
+echo "Checking for maniculatus and leucopus:"
+bcftools query -l /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps_with_new.vcf.gz | grep -E "maniculatus|leucopus"
+
+echo ""
+echo "Total samples in new VCF:"
+bcftools query -l /home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps_with_new.vcf.gz | wc -l
