@@ -1,48 +1,47 @@
-cd /home/sydt/scratch/mgpl_file/top_snps_selection/ind999
+#!/bin/bash
 
-# Create a list of the original 5000 SNP positions in BED format
-bcftools query -f '%CHROM\t%POS\t%POS\n' peromyscus_ind999_top5000_snps.vcf.gz > target_snps.bed
+# Set paths
+REFERENCE="/home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna"
+ORIGINAL_VCF="/home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps.vcf.gz"
+BAM_DIR="/home/sydt/scratch/mgpl_file/add_known_genome/aligned"
+OUTPUT_DIR="/home/sydt/scratch/mgpl_file/top_snps_selection/ind999"
 
-# Genotype leucopus at ONLY these 5000 positions
-bcftools mpileup -Ou -f $REFERENCE \
-    -R target_snps.bed \
-    /home/sydt/scratch/mgpl_file/add_known_genome/aligned/leucopus.bam 2>/dev/null | \
-    bcftools call -c -Oz -o leucopus_5000.vcf.gz
+cd $OUTPUT_DIR
 
-# Rename the sample
-bcftools reheader -s <(echo "leucopus") leucopus_5000.vcf.gz -o temp.vcf.gz && mv temp.vcf.gz leucopus_5000.vcf.gz
-tabix -f leucopus_5000.vcf.gz
+# Step 1: Create a list of target SNP positions from original VCF
+bcftools query -f '%CHROM\t%POS\n' $ORIGINAL_VCF > target_snps.txt
 
-# Genotype maniculatus at ONLY these 5000 positions
-bcftools mpileup -Ou -f $REFERENCE \
-    -R target_snps.bed \
-    /home/sydt/scratch/mgpl_file/add_known_genome/aligned/maniculatus.bam 2>/dev/null | \
-    bcftools call -c -Oz -o maniculatus_5000.vcf.gz
+# Step 2: Process leucopus.bam
+bcftools mpileup -f $REFERENCE \
+    -T target_snps.txt \
+    $BAM_DIR/leucopus.bam 2>/dev/null | \
+    bcftools call -c -Oz -o leucopus_temp.vcf.gz
 
-# Rename the sample
-bcftools reheader -s <(echo "maniculatus") maniculatus_5000.vcf.gz -o temp.vcf.gz && mv temp.vcf.gz maniculatus_5000.vcf.gz
-tabix -f maniculatus_5000.vcf.gz
+# Fix sample name
+bcftools reheader -s <(echo "leucopus") leucopus_temp.vcf.gz -o leucopus.vcf.gz
+tabix -f leucopus.vcf.gz
 
-# Verify both have exactly 5000 SNPs
-echo "Leucopus SNPs: $(bcftools view -H leucopus_5000.vcf.gz | wc -l)"
-echo "Maniculatus SNPs: $(bcftools view -H maniculatus_5000.vcf.gz | wc -l)"
+# Step 3: Process maniculatus.bam
+bcftools mpileup -f $REFERENCE \
+    -T target_snps.txt \
+    $BAM_DIR/maniculatus.bam 2>/dev/null | \
+    bcftools call -c -Oz -o maniculatus_temp.vcf.gz
 
-# Now merge all three
-bcftools merge \
-    peromyscus_ind999_top5000_snps.vcf.gz \
-    leucopus_5000.vcf.gz \
-    maniculatus_5000.vcf.gz \
-    -Oz -o peromyscus_with_both_final.vcf.gz
+# Fix sample name
+bcftools reheader -s <(echo "maniculatus") maniculatus_temp.vcf.gz -o maniculatus.vcf.gz
+tabix -f maniculatus.vcf.gz
 
-tabix -f peromyscus_with_both_final.vcf.gz
+# Step 4: Merge all three VCFs
+bcftools merge $ORIGINAL_VCF leucopus.vcf.gz maniculatus.vcf.gz -Oz -o final_merged.vcf.gz
+tabix -f final_merged.vcf.gz
 
-# Final verification
-echo ""
-echo "========================================="
-echo "FINAL VERIFICATION:"
-echo "========================================="
-echo "SNP count: $(bcftools view -H peromyscus_with_both_final.vcf.gz | wc -l) (should be 5000)"
-echo "Sample count: $(bcftools query -l peromyscus_with_both_final.vcf.gz | wc -l) (should be 1245)"
+# Step 5: Verify
+echo "=== RESULTS ==="
+echo "SNPs in final VCF: $(bcftools view -H final_merged.vcf.gz | wc -l)"
+echo "Samples in final VCF: $(bcftools query -l final_merged.vcf.gz | wc -l)"
 echo ""
 echo "Last 5 samples:"
-bcftools query -l peromyscus_with_both_final.vcf.gz | tail -5
+bcftools query -l final_merged.vcf.gz | tail -5
+
+# Cleanup temp files
+rm -f leucopus_temp.vcf.gz maniculatus_temp.vcf.gz target_snps.txt
