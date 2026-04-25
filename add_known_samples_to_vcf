@@ -1,47 +1,109 @@
-#!/bin/bash
+###had some issues with keeping 5000 SNPs, i would always get more like 5006 or 5009, because those indicated multiallelic site
 
-# Set paths
-REFERENCE="/home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna"
-ORIGINAL_VCF="/home/sydt/scratch/mgpl_file/top_snps_selection/ind999/peromyscus_ind999_top5000_snps.vcf.gz"
+# Load modules
+module load bcftools/1.17
+module load plink
+module load samtools
+
+# Define paths
+REF="/home/sydt/scratch/alignment/genome_index/GCF_049852395.1_HU_Pman_BW_mat_3.1_genomic.fna"
 BAM_DIR="/home/sydt/scratch/mgpl_file/add_known_genome/aligned"
-OUTPUT_DIR="/home/sydt/scratch/mgpl_file/top_snps_selection/ind999"
+ORIGINAL_VCF="peromyscus_ind999_top5000_snps.vcf.gz"
+OUTPUT_VCF="peromyscus_plus_maniculatus.vcf.gz"
 
-cd $OUTPUT_DIR
+echo "========================================="
+echo "Step 1: Extract original 5000 SNP positions"
+echo "========================================="
+bcftools query -f '%CHROM\t%POS\n' ${ORIGINAL_VCF} > original_5000_positions.txt
+echo "Total positions: $(wc -l < original_5000_positions.txt)"
 
-# Step 1: Create a list of target SNP positions from original VCF
-bcftools query -f '%CHROM\t%POS\n' $ORIGINAL_VCF > target_snps.txt
-
-# Step 2: Process leucopus.bam
-bcftools mpileup -f $REFERENCE \
-    -T target_snps.txt \
-    $BAM_DIR/leucopus.bam 2>/dev/null | \
-    bcftools call -c -Oz -o leucopus_temp.vcf.gz
-
-# Fix sample name
-bcftools reheader -s <(echo "leucopus") leucopus_temp.vcf.gz -o leucopus.vcf.gz
-tabix -f leucopus.vcf.gz
-
-# Step 3: Process maniculatus.bam
-bcftools mpileup -f $REFERENCE \
-    -T target_snps.txt \
-    $BAM_DIR/maniculatus.bam 2>/dev/null | \
-    bcftools call -c -Oz -o maniculatus_temp.vcf.gz
-
-# Fix sample name
-bcftools reheader -s <(echo "maniculatus") maniculatus_temp.vcf.gz -o maniculatus.vcf.gz
-tabix -f maniculatus.vcf.gz
-
-# Step 4: Merge all three VCFs
-bcftools merge $ORIGINAL_VCF leucopus.vcf.gz maniculatus.vcf.gz -Oz -o final_merged.vcf.gz
-tabix -f final_merged.vcf.gz
-
-# Step 5: Verify
-echo "=== RESULTS ==="
-echo "SNPs in final VCF: $(bcftools view -H final_merged.vcf.gz | wc -l)"
-echo "Samples in final VCF: $(bcftools query -l final_merged.vcf.gz | wc -l)"
 echo ""
-echo "Last 5 samples:"
-bcftools query -l final_merged.vcf.gz | tail -5
+echo "========================================="
+echo "Step 2: Create BED file for bcftools"
+echo "========================================="
+awk '{print $1"\t"$2-1"\t"$2}' original_5000_positions.txt > regions_5000.bed
 
-# Cleanup temp files
-rm -f leucopus_temp.vcf.gz maniculatus_temp.vcf.gz target_snps.txt
+echo ""
+echo "========================================="
+echo "Step 3: Call variants for maniculatus at ONLY these 5000 positions"
+echo "========================================="
+bcftools mpileup \
+    -f ${REF} \
+    -R regions_5000.bed \
+    ${BAM_DIR}/maniculatus.bam | \
+    bcftools call -m -Oz -o maniculatus_5000.vcf.gz
+
+# Index
+tabix -p vcf maniculatus_5000.vcf.gz
+
+# Verify
+echo "Maniculatus VCF SNPs: $(bcftools view -H maniculatus_5000.vcf.gz | wc -l)"
+
+echo ""
+echo "========================================="
+echo "Step 4: Rename maniculatus sample"
+echo "========================================="
+echo "maniculatus" > maniculatus_name.txt
+bcftools reheader -s maniculatus_name.txt maniculatus_5000.vcf.gz -o maniculatus_renamed.vcf.gz
+tabix -p vcf maniculatus_renamed.vcf.gz
+
+echo ""
+echo "========================================="
+echo "Step 5: Merge original VCF with maniculatus (preserving multiallelic sites)"
+echo "========================================="
+bcftools merge \
+    ${ORIGINAL_VCF} \
+    maniculatus_renamed.vcf.gz \
+    -m both \
+    -Oz -o ${OUTPUT_VCF}
+
+# Index
+tabix -p vcf ${OUTPUT_VCF}
+
+echo ""
+echo "========================================="
+echo "Step 6: Verify merged VCF"
+echo "========================================="
+echo "Total samples: $(bcftools query -l ${OUTPUT_VCF} | wc -l)"
+echo "Last 3 samples:"
+bcftools query -l ${OUTPUT_VCF} | tail -3
+echo "Total SNP positions (may have multiallelic sites): $(bcftools view -H ${OUTPUT_VCF} | cut -f1,2 | sort -u | wc -l)"
+echo "Total VCF rows (including multiallelic): $(bcftools view -H ${OUTPUT_VCF} | wc -l)"
+
+echo ""
+echo "========================================="
+echo "Step 7: Keep ONLY original 5000 positions (in case any extra were added)"
+echo "========================================="
+# Filter to keep only original positions
+bcftools view -T original_5000_positions.txt ${OUTPUT_VCF} -Oz -o ${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz
+tabix -p vcf ${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz
+
+echo "Filtered VCF rows: $(bcftools view -H ${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz | wc -l)"
+echo "Unique positions in filtered VCF: $(bcftools view -H ${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz | cut -f1,2 | sort -u | wc -l)"
+
+echo ""
+echo "========================================="
+echo "Step 8: Check for and handle multiallelic sites"
+echo "========================================="
+# Check for multiallelic sites (positions with multiple rows)
+MULTIALLELIC=$(bcftools view -H ${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz | cut -f1,2 | sort | uniq -d | wc -l)
+echo "Multiallelic sites found: ${MULTIALLELIC}"
+
+if [ ${MULTIALLELIC} -gt 0 ]; then
+    echo "Keeping multiallelic sites as-is (they are preserved in the VCF)"
+    echo "These sites have multiple alternate alleles in a single row"
+fi
+
+echo ""
+echo "========================================="
+echo "Step 9: Final VCF ready for ADMIXTURE"
+echo "========================================="
+FINAL_VCF="${OUTPUT_VCF%.vcf.gz}_filtered.vcf.gz"
+echo "Final VCF file: ${FINAL_VCF}"
+ls -lh ${FINAL_VCF}
+echo ""
+echo "Summary:"
+echo "  - Samples: $(bcftools query -l ${FINAL_VCF} | wc -l)"
+echo "  - Unique SNP positions: $(bcftools view -H ${FINAL_VCF} | cut -f1,2 | sort -u | wc -l)"
+echo "  - Total VCF rows (includes multiallelic representation): $(bcftools view -H ${FINAL_VCF} | wc -l)"
+
