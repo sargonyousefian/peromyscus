@@ -1,22 +1,16 @@
 #!/bin/bash
 
-## Bash script for submitting a job to the Compute Canada queue
-## Usage: sbatch entropy_queuesub_ind999.sh mpgl_file k_number rep_number ldak_file
-
-### ---------- Job configuration --------------------------------------------
-
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
 #SBATCH --account=def-mcfarlas
-#SBATCH --job-name="entropy_ind999"
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --mail-user=sargon.yousefian@gmail.com
 #SBATCH --mail-type=ALL
 
 # Load required modules
-module load nixpkgs/16.09  intel/2017.1 gsl/2.3 hdf5/1.8.18
+module load StdEnv/2020 gcc/9.3.0 gsl/2.6 hdf5/1.10.6
 
 ### ---------- Useful job information -------------------------------------
 
@@ -32,41 +26,76 @@ echo "Allocated memory: $SLURM_MEM_PER_NODE MB"
 
 ### ---------- Main ---------------------------------------------------------
 
-# Set working directory to output location
-WORKDIR=/home/sydt/scratch/entropy/ind999
-cd $WORKDIR
+# Parse arguments
+IN_FILE="$1"
+k="$2"
+rep="$3"
+LDAK_FILE="$4"
+ITERATIONS="$5"
+BURNIN="$6"
 
-# Enable OpenMP threading for parallel operations
+# Debug output
+echo "Debug: IN_FILE = '$IN_FILE'"
+echo "Debug: k = '$k'"
+echo "Debug: rep = '$rep'"
+echo "Debug: LDAK_FILE = '$LDAK_FILE'"
+echo "Debug: ITERATIONS = '$ITERATIONS'"
+echo "Debug: BURNIN = '$BURNIN'"
+
+# Set working directory for results
+RESULTS_DIR="/home/sydt/scratch/mgpl_file/top_snps_selection/ind999/entropy_results"
+cd $RESULTS_DIR
+
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-
-# Path to entropy program
 ENTROPY="/home/sydt/projects/def-mcfarlas/software/entropy"
 
-# Path to mpgl file
-IN_FILE=$1
-echo "Path to MPGL file: $IN_FILE"
-PREFIX=$(basename $IN_FILE .recode.mpgl)
-echo "MPGL file without path: $PREFIX"
+# Extract prefix
+PREFIX=$(basename "$IN_FILE" .mpgl)
+echo "Debug: PREFIX = '$PREFIX'"
 
-# Path to ldak file (qk file)
-LDAK_FILE=$4
-echo "Path to LDAK file: $LDAK_FILE"
-SUFFIX=$(basename $LDAK_FILE .txt)
-echo "LDAK file without path: $SUFFIX"
+# Convert iterations to readable format
+if [ "$ITERATIONS" -eq 200000 ]; then 
+    ITER_READABLE="200k"
+elif [ "$ITERATIONS" -eq 225000 ]; then 
+    ITER_READABLE="225k"
+elif [ "$ITERATIONS" -eq 250000 ]; then 
+    ITER_READABLE="250k"
+else
+    ITER_READABLE="${ITERATIONS}"
+fi
 
-echo "starting entropy"
+# Output files
+OUTPUT_FILE="${PREFIX}_k${k}_${ITER_READABLE}_rep${rep}.hdf5"
+DIC_FILE="${PREFIX}_k${k}_${ITER_READABLE}_rep${rep}_DIC.txt"
 
-# Entropy call
-k=$2
-rep=$3
+echo "Starting entropy with:"
+echo "  k = $k, replicate = $rep"
+echo "  iterations = $ITERATIONS ($ITER_READABLE)"
+echo "  burnin = $BURNIN"
+echo "  ldak file = $LDAK_FILE"
+echo "Output HDF5: $OUTPUT_FILE"
+echo "Output DIC: $DIC_FILE"
+echo "------------------------------------------------"
 
-# Print command
-entropyrun="$ENTROPY -i $IN_FILE -l 150000 -b 125000 -t 25 -k $k -o ${PREFIX}_k${k}_150k_rep${rep}_${SUFFIX}.hdf5 -n 2 -m 1 -w 0 -q $LDAK_FILE -Q 0 -r $RANDOM"
-echo $entropyrun
+# Run entropy
+$ENTROPY -i "$IN_FILE" \
+         -l "$ITERATIONS" \
+         -b "$BURNIN" \
+         -t 25 \
+         -k "$k" \
+         -o "$OUTPUT_FILE" \
+         -n 2 \
+         -m 1 \
+         -w 1 \
+         -q "$LDAK_FILE" \
+         -Q 1 \
+         -D 1 \
+         -r $RANDOM > "$DIC_FILE" 2>&1
 
-# Execute command
-$ENTROPY -i $IN_FILE -l 150000 -b 125000 -t 25 -k $k -o ${PREFIX}_k${k}_150k_rep${rep}_${SUFFIX}.hdf5 -n 2 -m 1 -w 0 -q $LDAK_FILE -Q 0 -r $RANDOM
+# Extract DIC values
+grep -E "DIC|deviance|pD" "$DIC_FILE" > "${DIC_FILE}.clean" 2>/dev/null
 
-echo "entropy run done. Results in ${PREFIX}_k${k}_150k_rep${rep}_${SUFFIX}.hdf5"
-echo "Output saved to: $WORKDIR"
-echo "Finished at: $(date)"
+echo "entropy run complete at: $(date)"
+echo "Results in: $RESULTS_DIR"
+ls -lh "$OUTPUT_FILE" 2>/dev/null || echo "WARNING: Output file not created!"
+echo "------------------------------------------------"
