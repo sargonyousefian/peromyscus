@@ -82,4 +82,3 @@ done
 
 echo "Total jobs submitted: $total_jobs"
 echo "========================================="
-[sydt@login3 ind999]$ 
