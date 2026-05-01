@@ -1,20 +1,33 @@
 # cannot run jobs longer than 7 days on compute canada, so I cannot run entropy on all my SNPs and inviduals. I will be running admixture first and then grab the top diagnostic markers and run entropy on those
 # first i need to conver my .vcf file for admixture, i will use plink
 # --double-id is because some ID have underscore, --allow-extra-chr and --ch-set is because of issues with the chromosome naming from NCBI
-plink --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf --double-id --allow-extra-chr --chr-set 95 --make-bed --out peromyscus_ind999_fresh
 
-# Fix chromosome codes
+Module load plink
+Module load admixture
+
+plink --vcf peromyscus_plus_maniculatus_filtered.vcf \
+      --double-id \
+      --allow-extra-chr \
+      --chr-set 95 \
+      --make-bed \
+      --out peromyscus_plus_maniculatus_filtered_fresh
+
 awk 'BEGIN{OFS="\t"} {
     if (!chr_map[$1]) {
         chr_map[$1] = ++chr_count
     }
     $1 = chr_map[$1]
     print
-}' peromyscus_ind999_fresh.bim > peromyscus_ind999_admixture_ready.bim
+}' peromyscus_plus_maniculatus_filtered_fresh.bim > peromyscus_plus_maniculatus_filtered_admixture_ready.bim
 
-# Copy the other files
-cp peromyscus_ind999_fresh.bed peromyscus_ind999_admixture_ready.bed
-cp peromyscus_ind999_fresh.fam peromyscus_ind999_admixture_ready.fam
+cp peromyscus_plus_maniculatus_filtered_fresh.bed peromyscus_plus_maniculatus_filtered_admixture_ready.bed
+cp peromyscus_plus_maniculatus_filtered_fresh.fam peromyscus_plus_maniculatus_filtered_admixture_ready.fam
 
+### -B gives me confidence intervals for the samples
+for K in 2 3; do
+    echo "Running ADMIXTURE with bootstrapping for K=$K at $(date)"
+    admixture -B --cv peromyscus_plus_maniculatus_filtered_admixture_ready.bed $K -j${SLURM_CPUS_PER_TASK}
+    echo "Finished K=$K at $(date)"
+done
 
-admixture peromyscus_ind999_admixture_ready.bed 2
+echo "All ADMIXTURE runs complete at $(date)"
