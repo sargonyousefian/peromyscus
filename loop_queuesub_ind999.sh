@@ -1,4 +1,6 @@
+#this is a code to submit 3 repeats per entropy run. I'm running entropy for k=2,3 and with 200k, 225k and 250k iterations.
 #### noticed that if i loop things every hour instead of every 5 seconds the jobs start faster. For example, if i submit 18 jobs with such high computational demand basically at the same time, the cluster stalls me for 12+ hours, but if i submit them every hour, they start within 30 minutes each
+## what i said up here is a LIE!! i submitted the same loop but for ind995 instead of ind999 about 3 days ago and some jobs still haven't started....
 #SBATCH --nodes=1
 #SBATCH --time=1-00:00:00
 #SBATCH --account=def-mcfarlas
