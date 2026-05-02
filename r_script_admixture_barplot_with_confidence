@@ -1,0 +1,161 @@
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Set working directory
+setwd("/Users/sargon/Desktop/masters/Bioinformatics/admixture results/ind999")
+
+# Read the Q matrix (ancestry proportions for K=2)
+q_table <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q")
+colnames(q_table) <- c("Ancestry1", "Ancestry2")
+
+# Read the standard errors
+q_se <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q_se")
+colnames(q_se) <- c("Ancestry1_SE", "Ancestry2_SE")
+
+# Add individual index
+q_table$Individual <- 1:nrow(q_table)
+q_se$Individual <- 1:nrow(q_se)
+
+# Sort by Ancestry2 (P. maniculatus) in ascending order
+sorted_indices <- order(q_table$Ancestry2)
+q_table_sorted <- q_table[sorted_indices, ]
+q_se_sorted <- q_se[sorted_indices, ]
+
+# Add new sorted individual numbers
+q_table_sorted$Sorted_Index <- 1:nrow(q_table_sorted)
+
+# Calculate 95% confidence intervals
+q_table_sorted$Ancestry1_CI_lower <- q_table_sorted$Ancestry1 - 1.96 * q_se_sorted$Ancestry1_SE
+q_table_sorted$Ancestry1_CI_upper <- q_table_sorted$Ancestry1 + 1.96 * q_se_sorted$Ancestry1_SE
+q_table_sorted$Ancestry2_CI_lower <- q_table_sorted$Ancestry2 - 1.96 * q_se_sorted$Ancestry2_SE
+q_table_sorted$Ancestry2_CI_upper <- q_table_sorted$Ancestry2 + 1.96 * q_se_sorted$Ancestry2_SE
+
+# Cap CIs at 0 and 1
+q_table_sorted$Ancestry1_CI_lower <- pmax(0, q_table_sorted$Ancestry1_CI_lower)
+q_table_sorted$Ancestry1_CI_upper <- pmin(1, q_table_sorted$Ancestry1_CI_upper)
+q_table_sorted$Ancestry2_CI_lower <- pmax(0, q_table_sorted$Ancestry2_CI_lower)
+q_table_sorted$Ancestry2_CI_upper <- pmin(1, q_table_sorted$Ancestry2_CI_upper)
+
+# ============================================
+# GRAPH 1: Stacked bar chart WITHOUT confidence intervals
+# ============================================
+
+pdf("admixture_k2_sorted_no_CI.pdf", width = 22, height = 6)
+
+# Create the stacked barplot with more space on left for legend
+par(mar = c(5, 8, 4, 4))  # Increase left margin
+
+bp1 <- barplot(t(as.matrix(q_table_sorted[, c("Ancestry2", "Ancestry1")])),
+               col = c("lightblue", "orange"),
+               border = NA,
+               xlab = "Individuals (sorted by P. maniculatus ancestry)",
+               ylab = "Ancestry Proportion",
+               main = expression(paste("Admixture results (K=2)")),
+               names.arg = rep("", nrow(q_table_sorted)),
+               space = 0,
+               ylim = c(0, 1))
+
+# Add reference line
+abline(h = 0.5, lty = 2, col = "gray", lwd = 0.5)
+
+# Add legend on the LEFT side
+legend("left", 
+       legend = c(expression(italic("P. leucopus")), 
+                  expression(italic("P. maniculatus"))),
+       fill = c("orange", "lightblue"),
+       cex = 0.9,
+       inset = c(0.05, 0),  # Slightly inset from left edge
+       xpd = TRUE)
+
+dev.off()
+
+# ============================================
+# GRAPH 2: With error bars at the split between populations
+# ============================================
+
+pdf("admixture_k2_sorted_with_CI.pdf", width = 22, height = 7)
+
+# Set up the plotting parameters with more space on left for legend
+par(mar = c(5, 8, 4, 4))  # Increase left margin
+
+# Create the stacked barplot
+bp2 <- barplot(t(as.matrix(q_table_sorted[, c("Ancestry2", "Ancestry1")])),
+               col = c("lightblue", "orange"),
+               border = NA,
+               xlab = "Individuals (sorted by P. maniculatus ancestry)",
+               ylab = "Ancestry Proportion",
+               main = expression(paste("Admixture results (K=2) with 95% Confidence Intervals")),
+               names.arg = rep("", nrow(q_table_sorted)),
+               space = 0,
+               ylim = c(0, 1))
+
+# Add error bars at the SPLIT between populations (the boundary)
+for (i in 1:nrow(q_table_sorted)) {
+  # The split point is exactly at the top of Population 2
+  split_point <- q_table_sorted$Ancestry2[i]
+  
+  # Uncertainty in both directions from the split
+  total_uncertainty_lower <- -1.96 * q_se_sorted$Ancestry2_SE[i]  # Uncertainty in Pop2
+  total_uncertainty_upper <- 1.96 * q_se_sorted$Ancestry1_SE[i]   # Uncertainty in Pop1
+  
+  # Draw vertical error bar line (very thin)
+  segments(x0 = bp2[i], 
+           x1 = bp2[i],
+           y0 = split_point + total_uncertainty_lower,
+           y1 = split_point + total_uncertainty_upper,
+           col = "black", 
+           lwd = 0.5)  # Very thin line
+  
+  # Add horizontal caps (very thin)
+  segments(x0 = bp2[i] - 0.25, 
+           x1 = bp2[i] + 0.25,
+           y0 = split_point + total_uncertainty_lower,
+           y1 = split_point + total_uncertainty_lower,
+           col = "black", 
+           lwd = 0.5)
+  
+  segments(x0 = bp2[i] - 0.25, 
+           x1 = bp2[i] + 0.25,
+           y0 = split_point + total_uncertainty_upper,
+           y1 = split_point + total_uncertainty_upper,
+           col = "black", 
+           lwd = 0.5)
+}
+
+# Add reference line
+abline(h = 0.5, lty = 2, col = "gray", lwd = 0.5)
+
+# Add legend on the LEFT side
+legend("left", 
+       legend = c(expression(italic("P. leucopus")), 
+                  expression(italic("P. maniculatus"))),
+       fill = c("orange", "lightblue"),
+       cex = 0.9,
+       inset = c(0.05, 0),
+       xpd = TRUE)
+
+dev.off()
+
+# ============================================
+# Print summary statistics
+# ============================================
+
+cat("\n========== SUMMARY STATISTICS ==========\n")
+cat("\nSorted by P. maniculatus ancestry (ascending order)\n")
+cat("\nP. maniculatus ancestry range:", 
+    round(min(q_table_sorted$Ancestry2), 4), "to", 
+    round(max(q_table_sorted$Ancestry2), 4))
+cat("\nP. maniculatus ancestry mean:", round(mean(q_table_sorted$Ancestry2), 4))
+cat("\nP. maniculatus ancestry median:", round(median(q_table_sorted$Ancestry2), 4))
+
+cat("\n\nAverage 95% CI width for P. leucopus:", 
+    round(mean(q_table_sorted$Ancestry1_CI_upper - q_table_sorted$Ancestry1_CI_lower), 4))
+cat("\nAverage 95% CI width for P. maniculatus:", 
+    round(mean(q_table_sorted$Ancestry2_CI_upper - q_table_sorted$Ancestry2_CI_lower), 4))
+
+cat("\n\n========== DONE! ==========\n")
+cat("\nOutput files saved:\n")
+cat("1. admixture_k2_sorted_no_CI.pdf - Stacked bar chart without CIs\n")
+cat("2. admixture_k2_sorted_with_CI.pdf - Stacked bar chart with error bars at population split\n")
