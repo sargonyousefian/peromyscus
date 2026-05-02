@@ -1,0 +1,78 @@
+### i did this so i can see them on the PCA graph divided as pure species and hybrids. 
+
+# ============================================
+# CREATE 3 CATEGORIES FROM ADMIXTURE K=2 RESULTS
+# Based on confidence intervals touching 0 or 1
+# ============================================
+
+# Set working directory to where your ADMIXTURE results are
+setwd("/Users/sargon/Desktop/masters/Bioinformatics/admixture results/ind999")
+
+# Load ADMIXTURE results
+q_table <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q")
+colnames(q_table) <- c("Ancestry1", "Ancestry2")  # Ancestry1 = P. leucopus, Ancestry2 = P. maniculatus
+
+q_se <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q_se")
+colnames(q_se) <- c("Ancestry1_SE", "Ancestry2_SE")
+
+# Load individual names from .fam file
+fam <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.fam")
+q_table$Individual_ID <- fam$V2
+
+# Calculate 95% confidence intervals
+q_table$Ancestry1_CI_lower <- pmax(0, q_table$Ancestry1 - 1.96 * q_se$Ancestry1_SE)
+q_table$Ancestry1_CI_upper <- pmin(1, q_table$Ancestry1 + 1.96 * q_se$Ancestry1_SE)
+q_table$Ancestry2_CI_lower <- pmax(0, q_table$Ancestry2 - 1.96 * q_se$Ancestry2_SE)
+q_table$Ancestry2_CI_upper <- pmin(1, q_table$Ancestry2 + 1.96 * q_se$Ancestry2_SE)
+
+# ============================================
+# ASSIGN CATEGORIES (CORRECTED LOGIC)
+# ============================================
+
+# Start all as Hybrid
+q_table$Category <- "Hybrid"
+
+# Check if CI touches 1.0 (using 0.9999 to account for floating point precision)
+touches_leucopus <- q_table$Ancestry1_CI_upper >= 0.9999
+touches_maniculatus <- q_table$Ancestry2_CI_upper >= 0.9999
+
+# Assign pure ONLY if they touch ONE but NOT the other
+q_table$Category[touches_leucopus & !touches_maniculatus] <- "P._leucopus"
+q_table$Category[touches_maniculatus & !touches_leucopus] <- "P._maniculatus"
+# Individuals with BOTH CIs touching 1.0 remain as "Hybrid"
+
+# ============================================
+# VIEW RESULTS
+# ============================================
+
+cat("\n=== CATEGORY COUNTS ===\n")
+print(table(q_table$Category))
+
+cat("\n=== FIRST 20 INDIVIDUALS ===\n")
+print(q_table[1:20, c("Individual_ID", "Ancestry1", "Ancestry2", 
+                      "Ancestry1_CI_upper", "Ancestry2_CI_upper", "Category")])
+
+# Show individuals with BOTH CIs touching 1.0 (true hybrids)
+both_touching <- q_table[touches_leucopus & touches_maniculatus, 
+                         c("Individual_ID", "Ancestry1", "Ancestry2", 
+                           "Ancestry1_CI_upper", "Ancestry2_CI_upper")]
+if(nrow(both_touching) > 0) {
+  cat("\n=== INDIVIDUALS WITH BOTH CIs TOUCHING 1.0 (TRUE HYBRIDS) ===\n")
+  print(both_touching)
+}
+
+# ============================================
+# SAVE CATEGORY MAPPING FOR LATER USE (e.g., PCA)
+# ============================================
+
+# Save full table with categories
+write.csv(q_table, "admixture_categories_with_names.csv", row.names=F)
+
+# Save simple mapping file for PCA coloring
+category_mapping <- q_table[, c("Individual_ID", "Category")]
+write.table(category_mapping, "sample_categories.txt", 
+            row.names=F, col.names=T, quote=F, sep="\t")
+
+cat("\n=== FILES SAVED ===\n")
+cat("1. admixture_categories_with_names.csv - Full table with CIs and categories\n")
+cat("2. sample_categories.txt - Simple mapping file for PCA coloring\n")
