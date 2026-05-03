@@ -1,0 +1,358 @@
+#basically i started doing a pca and when i coloured the samples based on the admixture results i realized the variance explained by PC1 was not genetic, so i did more digging and realized 
+#i was getting batch effect based on which library the samples belonged to. This is aggravated by the fact that i have about 100 duplictaes (so 100 individual, but 200 samples). I cleaned the samples by selecting the 
+# duplicate sample with higher variants called and run the pca again. it helped a bit but the PCA is still not explaining geentic variance but batch effect which is disappointing. Also I want to develop a better way
+# to handle this duplicates, for example going from 2 samples to 1 but by adding the variants called ideally. Also there seems to be a very high correlation between variants called and maniculatus proportion...
+
+# ============================================
+# COMPLETE WORKFLOW IN CHRONOLOGICAL ORDER
+# ============================================
+
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(ggrepel)
+
+setwd("/Users/sargon/Desktop/masters/Bioinformatics/admixture results/ind999")
+
+# ============================================
+# STEP 1: INITIAL PCA WITH RAW DATA (pca_on5000snps_ind999)
+# ============================================
+
+# Load data
+gl_data <- read.table("pntest_mean_gl_new.txt", header=FALSE)
+locus_names <- gl_data[,1]
+gl_data <- gl_data[,-1]
+locus_names <- make.unique(as.character(locus_names))
+locus_names[is.na(locus_names)] <- paste0("locus_", which(is.na(locus_names)))
+rownames(gl_data) <- locus_names
+
+# Transpose and clean
+gl_t <- t(gl_data)
+constant_cols <- apply(gl_t, 2, function(x) length(unique(x)) == 1)
+gl_t_filtered <- gl_t[, !constant_cols]
+gl_t_filtered[is.na(gl_t_filtered)] <- mean(gl_t_filtered, na.rm=TRUE)
+
+# Run PCA
+pca <- prcomp(gl_t_filtered, scale=TRUE, center=TRUE)
+var_exp <- summary(pca)$importance[2, 1:10] * 100
+var_exp_df <- data.frame(PC = paste0("PC", 1:10), Variance = var_exp[1:10])
+
+# PCA data frame
+pca_df <- data.frame(
+  PC1 = pca$x[,1], PC2 = pca$x[,2], PC3 = pca$x[,3], PC4 = pca$x[,4],
+  Individual = rownames(pca$x)
+)
+
+# Load sample names
+ind_info <- read.table("inds_peromyscus_plus_maniculatus_filtered.txt", header=FALSE)
+pca_df$Individual <- ind_info$V1[1:nrow(pca_df)]
+
+# GRAPH 1: PC1 vs PC2 colored by species
+pca_df$Species <- "Unknown"
+pca_df$Species[grepl("maniculatus", pca_df$Individual, ignore.case=TRUE)] <- "maniculatus"
+pca_df$Species[grepl("peromyscus", pca_df$Individual, ignore.case=TRUE)] <- "peromyscus"
+
+p1 <- ggplot(pca_df, aes(x=PC1, y=PC2, color=Species)) +
+  geom_point(size=3, alpha=0.7) +
+  scale_color_manual(values=c("maniculatus"="red","peromyscus"="blue","Unknown"="gray")) +
+  labs(title="PCA: PC1 vs PC2", x=paste0("PC1 (",round(var_exp[1],2),"%)"), y=paste0("PC2 (",round(var_exp[2],2),"%)"))
+ggsave("1_initial_PC1_vs_PC2.pdf", p1, width=10, height=8)
+
+# GRAPH 2: PC2 vs PC3
+p2 <- ggplot(pca_df, aes(x=PC2, y=PC3, color=Species)) +
+  geom_point(size=3, alpha=0.7) +
+  scale_color_manual(values=c("maniculatus"="red","peromyscus"="blue","Unknown"="gray")) +
+  labs(title="PCA: PC2 vs PC3", x=paste0("PC2 (",round(var_exp[2],2),"%)"), y=paste0("PC3 (",round(var_exp[3],2),"%)"))
+ggsave("2_initial_PC2_vs_PC3.pdf", p2, width=10, height=8)
+
+# GRAPH 3: Density along PC1
+p3 <- ggplot(pca_df, aes(x=PC1, fill=Species)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values=c("maniculatus"="red","peromyscus"="blue","Unknown"="gray"))
+ggsave("3_initial_PC1_density.pdf", p3, width=10, height=6)
+
+# GRAPH 4: Scree plot
+p4 <- ggplot(var_exp_df[1:10,], aes(x=PC, y=Variance)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  theme(axis.text.x=element_text(angle=45,hjust=1))
+ggsave("4_scree_plot.pdf", p4, width=8, height=6)
+
+# GRAPH 5: Cumulative variance
+var_exp_cum <- cumsum(var_exp)
+cum_var_df <- data.frame(PC=paste0("PC",1:10), Cumulative_Variance=var_exp_cum[1:10])
+p5 <- ggplot(cum_var_df, aes(x=PC, y=Cumulative_Variance, group=1)) +
+  geom_line(linewidth=1.2, color="steelblue") + geom_point(size=3, color="steelblue")
+ggsave("5_cumulative_variance.pdf", p5, width=8, height=6)
+
+# ============================================
+# STEP 2: CREATE ADMIXTURE CATEGORIES
+# ============================================
+
+q_table <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q")
+colnames(q_table) <- c("Ancestry1", "Ancestry2")
+q_se <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q_se")
+colnames(q_se) <- c("Ancestry1_SE", "Ancestry2_SE")
+
+fam <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.fam")
+q_table$Individual_ID <- fam$V2
+
+# Calculate CIs
+q_table$Ancestry1_CI_upper <- pmin(1, q_table$Ancestry1 + 1.96 * q_se$Ancestry1_SE)
+q_table$Ancestry2_CI_upper <- pmin(1, q_table$Ancestry2 + 1.96 * q_se$Ancestry2_SE)
+
+# Assign categories (corrected logic)
+q_table$Category <- "Hybrid"
+touches_leucopus <- q_table$Ancestry1_CI_upper >= 0.9999
+touches_maniculatus <- q_table$Ancestry2_CI_upper >= 0.9999
+q_table$Category[touches_leucopus & !touches_maniculatus] <- "P._leucopus"
+q_table$Category[touches_maniculatus & !touches_leucopus] <- "P._maniculatus"
+
+write.table(q_table[,c("Individual_ID","Category")], "sample_categories.txt", row.names=F, quote=F, sep="\t")
+
+# ============================================
+# STEP 3: PCA WITH ADMIXTURE CATEGORIES (using pntest_mean_gl_new.txt)
+# ============================================
+
+gl_data <- read.table("pntest_mean_gl_new.txt", header=FALSE)
+gl_data <- gl_data[,-1]
+all_sample_names <- fam$V2
+sample_names <- all_sample_names[all_sample_names != "maniculatus"]
+colnames(gl_data) <- sample_names
+
+# Load categories
+categories <- read.table("sample_categories.txt", header=TRUE, sep="\t")
+categories_filtered <- categories[categories$Individual != "maniculatus", ]
+colnames(categories_filtered)[1] <- "Individual"
+
+# Run PCA
+gl_t <- t(gl_data)
+constant_cols <- apply(gl_t, 2, function(x) sd(x, na.rm=TRUE)==0 | length(unique(x))==1)
+gl_t_filtered <- gl_t[, !constant_cols]
+for(i in 1:ncol(gl_t_filtered)) {
+  if(any(is.na(gl_t_filtered[,i]))) gl_t_filtered[is.na(gl_t_filtered[,i]), i] <- mean(gl_t_filtered[,i], na.rm=TRUE)
+}
+pca <- prcomp(gl_t_filtered, center=TRUE, scale=TRUE)
+var_exp <- summary(pca)$importance[2, 1:3] * 100
+
+pca_df <- data.frame(PC1=pca$x[,1], PC2=pca$x[,2], PC3=pca$x[,3], Individual=rownames(pca$x))
+pca_df <- merge(pca_df, categories_filtered, by="Individual", all.x=TRUE)
+
+# GRAPH 6: PC1 vs PC2 colored by category
+p6 <- ggplot(pca_df, aes(x=PC1, y=PC2, color=Category)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_manual(values=c("P._leucopus"="blue", "Hybrid"="purple")) +
+  labs(x=paste0("PC1 (",round(var_exp[1],2),"%)"), y=paste0("PC2 (",round(var_exp[2],2),"%)"))
+ggsave("6_PC1_vs_PC2_categories.pdf", p6, width=10, height=8)
+
+# GRAPH 7: PC2 vs PC3
+p7 <- ggplot(pca_df, aes(x=PC2, y=PC3, color=Category)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_manual(values=c("P._leucopus"="blue", "Hybrid"="purple"))
+ggsave("7_PC2_vs_PC3_categories.pdf", p7, width=10, height=8)
+
+# GRAPH 8: PC1 vs PC3
+p8 <- ggplot(pca_df, aes(x=PC1, y=PC3, color=Category)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_manual(values=c("P._leucopus"="blue", "Hybrid"="purple"))
+ggsave("8_PC1_vs_PC3_categories.pdf", p8, width=10, height=8)
+
+# ============================================
+# STEP 4: CONTINUOUS ANCESTRY COLORING
+# ============================================
+
+# Add Q-values
+q_matrix <- read.table("peromyscus_plus_maniculatus_filtered_admixture_ready.2.Q")
+colnames(q_matrix) <- c("P_leucopus", "P_maniculatus")
+q_matrix$Individual <- all_sample_names
+q_matrix_filtered <- q_matrix[q_matrix$Individual != "maniculatus", ]
+pca_df <- merge(pca_df, q_matrix_filtered, by="Individual", all.x=TRUE)
+
+# GRAPH 9: PC1 vs PC2 colored by continuous ancestry
+p9 <- ggplot(pca_df, aes(x=PC1, y=PC2, color=P_maniculatus)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_gradient2(low="blue", mid="purple", high="red", midpoint=0.3, limits=c(0,0.7),
+                        name=expression(italic("P. maniculatus")~"ancestry")) +
+  labs(x=paste0("PC1 (",round(var_exp[1],2),"%)"), y=paste0("PC2 (",round(var_exp[2],2),"%)"))
+ggsave("9_continuous_ancestry.pdf", p9, width=10, height=8)
+
+# GRAPH 10: Density contours
+p10 <- ggplot(pca_df, aes(x=PC1, y=PC2, color=P_maniculatus)) +
+  geom_point(size=1.5, alpha=0.5) +
+  stat_density_2d(aes(color=after_stat(level)), bins=10) +
+  scale_color_gradient(low="blue", high="red")
+ggsave("10_density_contours.pdf", p10, width=10, height=8)
+
+# GRAPH 11: Ancestry cline
+p11 <- ggplot(pca_df, aes(x=PC1, y=P_maniculatus, color=P_maniculatus)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_gradient(low="blue", high="red") +
+  geom_smooth(method="loess", color="black") +
+  labs(x=paste0("PC1 (",round(var_exp[1],2),"%)"), y=expression(italic("P. maniculatus")~"ancestry"))
+ggsave("11_ancestry_cline.pdf", p11, width=10, height=6)
+
+# ============================================
+# STEP 5: DIAGNOSE BATCH EFFECTS
+# ============================================
+
+# Load variant counts
+variant_counts <- read.csv("sample_variant_counts.csv")
+
+# GRAPH 12: PC1 vs missing data
+pca_df$Sample_base <- gsub("_[0-9]+$", "", pca_df$Individual)
+variant_counts$Sample_base <- gsub("_[0-9]+$", "", variant_counts$Sample_ID)
+pca_df <- merge(pca_df, variant_counts[,c("Sample_base","Proportion_Called")], by="Sample_base", all.x=TRUE)
+
+p12 <- ggplot(pca_df, aes(x=PC1, y=Proportion_Called, color=P_maniculatus)) +
+  geom_point(size=2, alpha=0.7) +
+  scale_color_gradient(low="blue", high="red") +
+  labs(x=paste0("PC1 (",round(var_exp[1],2),"%)"), y="Proportion of variants called")
+ggsave("12_PC1_vs_missing_data.pdf", p12, width=8, height=6)
+
+# GRAPH 13: PC1 by replicate type (BATCH EFFECT DISCOVERED)
+pca_df$Replicate_type <- ifelse(grepl("_2$", pca_df$Individual), "Replicate_2",
+                                ifelse(grepl("_3$", pca_df$Individual), "Replicate_3", "Other"))
+
+cat("\nPC1 by replicate type (BATCH EFFECT VISIBLE):")
+print(aggregate(PC1 ~ Replicate_type, data=pca_df, FUN=function(x) round(mean(x), 2)))
+
+p13 <- ggplot(pca_df, aes(x=Replicate_type, y=PC1, fill=Replicate_type)) +
+  geom_boxplot() +
+  scale_fill_manual(values=c("Replicate_2"="blue","Replicate_3"="red","Other"="gray")) +
+  labs(y=paste0("PC1 (",round(var_exp[1],2),"%)"), title="BATCH EFFECT: Replicate_3 vs Replicate_2")
+ggsave("13_batch_effect_boxplot.pdf", p13, width=6, height=6)
+
+# ============================================
+# STEP 6: K-MEANS CLUSTERING
+# ============================================
+
+set.seed(123)
+kmeans_clusters <- kmeans(pca_df[, c("PC1", "PC2")], centers = 3, nstart = 25)
+pca_df$Cluster <- as.factor(kmeans_clusters$cluster)
+
+# GRAPH 14: K-means clusters
+p14 <- ggplot(pca_df, aes(x=PC1, y=PC2, color=Cluster)) +
+  geom_point(size=2, alpha=0.7) +
+  labs(title="K-means clustering (k=3) on PC1 and PC2")
+ggsave("14_kmeans_clusters.pdf", p14, width=8, height=6)
+
+cat("\nAncestry by k-means cluster:")
+print(aggregate(P_maniculatus ~ Cluster, data=pca_df, 
+                FUN=function(x) c(mean=round(mean(x),3), min=round(min(x),3), max=round(max(x),3))))
+
+# ============================================
+# STEP 7: CLEAN DATA - KEEP ONLY BEST REPLICATES
+# ============================================
+
+# Identify best replicates (highest variant calls)
+best_replicates <- variant_counts %>%
+  mutate(Base_name = gsub("_[0-9B_]+$", "", Sample_ID),
+         Base_name = gsub("_B", "", Base_name)) %>%
+  group_by(Base_name) %>%
+  slice_max(Variants_Called, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+# Filter genotype matrix
+gl_data <- read.table("pntest_mean_gl_new.txt", header=FALSE)
+gl_data <- gl_data[,-1]
+all_sample_names_filtered <- all_sample_names[all_sample_names != "maniculatus"]
+colnames(gl_data) <- all_sample_names_filtered
+gl_data_filtered <- gl_data[, colnames(gl_data) %in% best_replicates$Sample_ID]
+
+# Re-run PCA on cleaned data
+gl_t <- t(gl_data_filtered)
+constant_cols <- apply(gl_t, 2, function(x) sd(x, na.rm=TRUE)==0 | length(unique(x))==1)
+gl_t_filtered <- gl_t[, !constant_cols]
+for(i in 1:ncol(gl_t_filtered)) {
+  if(any(is.na(gl_t_filtered[,i]))) gl_t_filtered[is.na(gl_t_filtered[,i]), i] <- mean(gl_t_filtered[,i], na.rm=TRUE)
+}
+pca_clean <- prcomp(gl_t_filtered, center=TRUE, scale=TRUE)
+var_exp_clean <- summary(pca_clean)$importance[2, 1:3] * 100
+
+pca_clean_df <- data.frame(PC1=pca_clean$x[,1], PC2=pca_clean$x[,2], PC3=pca_clean$x[,3], Individual=rownames(pca_clean$x))
+pca_clean_df <- merge(pca_clean_df, q_matrix_filtered, by="Individual", all.x=TRUE)
+
+# GRAPH 15: Clean PCA - colored by replicate type (check if batch effect resolved)
+pca_clean_df$Replicate_type <- ifelse(grepl("_2$", pca_clean_df$Individual), "Replicate_2",
+                                      ifelse(grepl("_3$", pca_clean_df$Individual), "Replicate_3", "Other"))
+
+p15 <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=Replicate_type)) +
+  geom_point(size=2.5, alpha=0.7) +
+  scale_color_manual(values=c("Replicate_2"="blue","Replicate_3"="red","Other"="gray")) +
+  labs(title="CLEAN PCA (best replicates only)", subtitle="Check if batch effect resolved",
+       x=paste0("PC1 (",round(var_exp_clean[1],2),"%)"), y=paste0("PC2 (",round(var_exp_clean[2],2),"%)"))
+ggsave("15_clean_PCA_batch_check.pdf", p15, width=10, height=8)
+
+# GRAPH 16: Clean PCA - colored by ancestry
+p16 <- ggplot(pca_clean_df, aes(x=PC1, y=PC2, color=P_maniculatus)) +
+  geom_point(size=2.5, alpha=0.7) +
+  scale_color_gradient2(low="blue", mid="purple", high="red", midpoint=0.3) +
+  labs(title="CLEAN PCA (best replicates only)", x=paste0("PC1 (",round(var_exp_clean[1],2),"%)"))
+ggsave("16_clean_PCA_ancestry.pdf", p16, width=10, height=8)
+
+# GRAPH 17: Clean PCA - ancestry cline
+p17 <- ggplot(pca_clean_df, aes(x=PC1, y=P_maniculatus, color=P_maniculatus)) +
+  geom_point(size=2.5, alpha=0.7) +
+  scale_color_gradient(low="blue", high="red") +
+  geom_smooth(method="loess", color="black") +
+  labs(title="CLEAN DATA: Ancestry cline", x=paste0("PC1 (",round(var_exp_clean[1],2),"%)"))
+ggsave("17_clean_ancestry_cline.pdf", p17, width=10, height=6)
+
+# GRAPH 18: Boxplot after cleanup to verify batch effect is resolved
+p18 <- ggplot(pca_clean_df, aes(x=Replicate_type, y=PC1, fill=Replicate_type)) +
+  geom_boxplot() +
+  scale_fill_manual(values=c("Replicate_2"="blue","Replicate_3"="red","Other"="gray")) +
+  labs(y=paste0("PC1 (",round(var_exp_clean[1],2),"%)"), 
+       title="AFTER CLEANUP: PC1 by replicate type",
+       subtitle="If boxes overlap, batch effect is reduced/resolved") +
+  theme_bw()
+ggsave("18_clean_batch_check_boxplot.pdf", p18, width=6, height=6)
+
+# ============================================
+# SUMMARY
+# ============================================
+
+cat("\n========== SUMMARY ==========\n")
+cat("Original correlation PC1 vs ancestry: -0.1885\n")
+cat("Cleaned correlation PC1 vs ancestry:", round(cor(pca_clean_df$PC1, pca_clean_df$P_maniculatus, use="complete.obs"), 4), "\n")
+
+cat("\nPC1 by replicate type (BEFORE cleaning):\n")
+print(aggregate(PC1 ~ Replicate_type, data=pca_df, FUN=function(x) round(mean(x), 2)))
+
+cat("\nPC1 by replicate type (AFTER cleaning):\n")
+print(aggregate(PC1 ~ Replicate_type, data=pca_clean_df, FUN=function(x) round(mean(x), 2)))
+
+# Add boxplot comparison
+print(p18)
+
+# ============================================
+# GRAPH 19: Variants Called vs P. maniculatus Ancestry (on cleaned data)
+# ============================================
+
+# Ensure we have variant counts for cleaned data
+variant_counts <- read.csv("sample_variant_counts.csv")
+pca_clean_df$Sample_base <- gsub("_[0-9]+$", "", pca_clean_df$Individual)
+variant_counts$Sample_base <- gsub("_[0-9]+$", "", variant_counts$Sample_ID)
+pca_clean_df <- merge(pca_clean_df, variant_counts[,c("Sample_base", "Variants_Called", "Proportion_Called")], 
+                      by="Sample_base", all.x=TRUE)
+
+# GRAPH 19: Variants called vs P. maniculatus ancestry
+p19 <- ggplot(pca_clean_df, aes(x=P_maniculatus, y=Variants_Called, color=P_maniculatus)) +
+  geom_point(size=2.5, alpha=0.7) +
+  scale_color_gradient(low="blue", high="red", 
+                       name = expression(italic("P. maniculatus") ~ "ancestry")) +
+  geom_smooth(method = "loess", color = "black", se = TRUE) +
+  labs(
+    title = "Variants called vs P. maniculatus ancestry (cleaned data)",
+    subtitle = paste0("Correlation: ", round(cor(pca_clean_df$P_maniculatus, pca_clean_df$Variants_Called, use="complete.obs"), 4)),
+    x = expression(italic("P. maniculatus") ~ "ancestry proportion"),
+    y = "Number of variants called (out of 5000)"
+  ) +
+  theme_bw()
+ggsave("19_variants_vs_ancestry_clean.pdf", p19, width=8, height=6)
+
+
+# Print correlation
+cat("\nCorrelation between P. maniculatus ancestry and variants called (cleaned):", 
+    round(cor(pca_clean_df$P_maniculatus, pca_clean_df$Variants_Called, use="complete.obs"), 4), "\n")
+
+print(p19)
