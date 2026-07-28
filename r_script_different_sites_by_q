@@ -53,7 +53,7 @@ combined_sites_filtered <- combined_sites %>%
 
 # Violin plot with individual dots
 p1 <- ggplot(combined_sites_filtered, aes(x = SITE, y = Pop2, fill = SITE)) +
-  geom_violin(alpha = 0.7, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_violin(alpha = 0.7) +
   geom_jitter(width = 0.15, alpha = 0.3, size = 0.8, color = "black") +
   labs(title = "Ancestry Proportion by Site",
        x = "Site",
