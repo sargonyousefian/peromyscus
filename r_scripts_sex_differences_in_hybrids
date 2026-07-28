@@ -1,0 +1,92 @@
+# Load required libraries
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+
+# Read the ADMIXTURE Q file
+q_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.2.Q"
+q_data <- read.table(q_file, header = FALSE)
+colnames(q_data) <- c("Pop1", "Pop2")
+
+# Read the .fam file
+fam_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.fam"
+fam_data <- read.table(fam_file, header = FALSE)
+colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
+
+# Extract DNA_nbr from FAM IID
+fam_data$DNA_nbr <- gsub("^Peromyscus([0-9]+)_.*$", "\\1", fam_data$IID)
+fam_data$DNA_nbr <- as.character(as.numeric(fam_data$DNA_nbr))
+
+# Read metadata
+metadata_file <- "/Users/sargon/Desktop/masters/results/PEROMYSCUS (QUBS)_DNA_AM.xlsx"
+metadata <- read_excel(metadata_file)
+
+# Clean DNA_nbr in metadata
+metadata$DNA_nbr_clean <- gsub("\\.0$", "", as.character(metadata$DNA_nbr))
+metadata$DNA_nbr_clean <- as.character(as.numeric(metadata$DNA_nbr_clean))
+
+# Remove duplicate DNA_nbr entries in metadata
+metadata_unique <- metadata %>%
+  group_by(DNA_nbr_clean) %>%
+  slice(1) %>%
+  ungroup()
+
+# Merge fam data with metadata
+combined <- fam_data %>%
+  left_join(metadata_unique, by = c("DNA_nbr" = "DNA_nbr_clean"))
+
+# Add Q data
+combined <- cbind(combined, q_data)
+
+# Create a column for sex category including NA
+combined$Sex_Category <- combined$SEX
+combined$Sex_Category[is.na(combined$Sex_Category)] <- "Unknown"
+
+# Graph 1: Violin plot - Males vs Females only
+combined_clean <- combined %>% filter(SEX %in% c("F", "M"))
+
+p1 <- ggplot(combined_clean, aes(x = SEX, y = Pop2, fill = SEX)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  scale_fill_manual(values = c("F" = "#FF6B6B", "M" = "#4ECDC4")) +
+  labs(title = "Ancestry Proportion by Sex (Pop2)",
+       x = "Sex",
+       y = "Proportion of Ancestry from Population 2") +
+  ylim(0, 1) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 16, hjust = 0.5))
+
+print(p1)
+
+# Graph 2: Violin plot - Males vs Females vs Unknown (including NAs)
+combined_all <- combined %>%
+  mutate(Sex_Group = case_when(
+    SEX == "F" ~ "Female",
+    SEX == "M" ~ "Male",
+    TRUE ~ "Unknown"
+  ))
+
+p2 <- ggplot(combined_all, aes(x = Sex_Group, y = Pop2, fill = Sex_Group)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  scale_fill_manual(values = c("Female" = "#FF6B6B", 
+                               "Male" = "#4ECDC4", 
+                               "Unknown" = "#95A5A6")) +
+  labs(title = "Ancestry Proportion by Sex (Including Unknown)",
+       x = "Sex",
+       y = "Proportion of Ancestry from Population 2") +
+  ylim(0, 1) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 16, hjust = 0.5))
+
+print(p2)
+
+# Show counts
+cat("\nCounts:")
+cat("\nFemales:", sum(combined$SEX == "F", na.rm = TRUE))
+cat("\nMales:", sum(combined$SEX == "M", na.rm = TRUE))
+cat("\nUnknown:", sum(is.na(combined$SEX)))
+cat("\nTotal:", nrow(combined))
