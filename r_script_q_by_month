@@ -1,0 +1,91 @@
+# Load required libraries
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+
+# Read the ADMIXTURE Q file
+q_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.2.Q"
+q_data <- read.table(q_file, header = FALSE)
+colnames(q_data) <- c("Pop1", "Pop2")
+
+# Read the .fam file
+fam_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.fam"
+fam_data <- read.table(fam_file, header = FALSE)
+colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
+
+# Extract DNA_nbr from FAM IID
+fam_data$DNA_nbr <- gsub("^Peromyscus([0-9]+)_.*$", "\\1", fam_data$IID)
+fam_data$DNA_nbr <- as.character(as.numeric(fam_data$DNA_nbr))
+
+# Read metadata
+metadata_file <- "/Users/sargon/Desktop/masters/results/PEROMYSCUS (QUBS)_DNA_AM.xlsx"
+metadata <- read_excel(metadata_file)
+
+# Clean DNA_nbr in metadata
+metadata$DNA_nbr_clean <- gsub("\\.0$", "", as.character(metadata$DNA_nbr))
+metadata$DNA_nbr_clean <- as.character(as.numeric(metadata$DNA_nbr_clean))
+
+# Extract month from DATE column
+metadata$MONTH <- format(metadata$DATE, "%B")
+
+# Remove duplicate DNA_nbr entries in metadata
+metadata_unique <- metadata %>%
+  group_by(DNA_nbr_clean) %>%
+  slice(1) %>%
+  ungroup()
+
+# Merge fam data with metadata
+combined <- fam_data %>%
+  left_join(metadata_unique, by = c("DNA_nbr" = "DNA_nbr_clean"))
+
+# Add Q data
+combined <- cbind(combined, q_data)
+
+# Remove rows with missing MONTH
+combined_month <- combined %>% filter(!is.na(MONTH))
+
+# Filter to months with at least 10 individuals
+month_counts <- combined_month %>%
+  group_by(MONTH) %>%
+  summarise(n = n()) %>%
+  filter(n >= 10)
+
+combined_month_filtered <- combined_month %>%
+  filter(MONTH %in% month_counts$MONTH)
+
+# Order months chronologically
+month_order <- c("January", "February", "March", "April", "May", "June", 
+                 "July", "August", "September", "October", "November", "December")
+combined_month_filtered$MONTH <- factor(combined_month_filtered$MONTH, levels = month_order)
+
+# Violin plot with dots - by Month
+p1 <- ggplot(combined_month_filtered, aes(x = MONTH, y = Pop2, fill = MONTH)) +
+  geom_violin(alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.3, size = 0.8, color = "black") +
+  labs(title = "Ancestry Proportion by Month",
+       x = "Month",
+       y = "Q Score") +
+  ylim(0, 1) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10, angle = 45, hjust = 1),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 16, hjust = 0.5),
+        legend.position = "none")
+
+print(p1)
+
+# Show summary statistics
+cat("\n\nSummary statistics by month:\n")
+month_summary <- combined_month_filtered %>%
+  group_by(MONTH) %>%
+  summarise(
+    n = n(),
+    mean_Pop2 = mean(Pop2, na.rm = TRUE),
+    median_Pop2 = median(Pop2, na.rm = TRUE),
+    min_Pop2 = min(Pop2, na.rm = TRUE),
+    max_Pop2 = max(Pop2, na.rm = TRUE)
+  ) %>%
+  arrange(MONTH)
+
+print(month_summary)
