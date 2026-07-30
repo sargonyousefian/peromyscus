@@ -1,0 +1,134 @@
+# Load required libraries
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(patchwork)
+library(lubridate)
+
+# Read the ADMIXTURE Q file
+q_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.2.Q"
+q_data <- read.table(q_file, header = FALSE)
+colnames(q_data) <- c("Pop1", "Pop2")
+
+# Read the .fam file
+fam_file <- "/Users/sargon/Desktop/masters/results/peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001_unique_quality_admixture_ready.fam"
+fam_data <- read.table(fam_file, header = FALSE)
+colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
+
+# Extract DNA_nbr from FAM IID
+fam_data$DNA_nbr <- gsub("^Peromyscus([0-9]+)_.*$", "\\1", fam_data$IID)
+fam_data$DNA_nbr <- as.character(as.numeric(fam_data$DNA_nbr))
+
+# Read metadata
+metadata_file <- "/Users/sargon/Desktop/masters/results/PEROMYSCUS (QUBS)_DNA_AM.xlsx"
+metadata <- read_excel(metadata_file)
+
+# Clean DNA_nbr in metadata
+metadata$DNA_nbr_clean <- gsub("\\.0$", "", as.character(metadata$DNA_nbr))
+metadata$DNA_nbr_clean <- as.character(as.numeric(metadata$DNA_nbr_clean))
+
+# Extract year and date
+metadata$YEAR <- format(metadata$DATE, "%Y")
+metadata$DATE_NUM <- as.numeric(metadata$DATE)
+
+# Fix site names: capitalize and correct "moor" to "Moores"
+metadata$SITE <- case_when(
+  tolower(metadata$SITE) == "moor" ~ "Moores",
+  tolower(metadata$SITE) == "blue" ~ "Blue",
+  tolower(metadata$SITE) == "cow" ~ "Cow",
+  tolower(metadata$SITE) == "red" ~ "Red",
+  tolower(metadata$SITE) == "qubs" ~ "QUBS",
+  tolower(metadata$SITE) == "cabin" ~ "Cabin",
+  tolower(metadata$SITE) == "lodges" ~ "Lodges",
+  tolower(metadata$SITE) == "tanks" ~ "Tanks",
+  TRUE ~ metadata$SITE
+)
+
+# Remove duplicate DNA_nbr entries in metadata
+metadata_unique <- metadata %>%
+  group_by(DNA_nbr_clean) %>%
+  slice(1) %>%
+  ungroup()
+
+# Merge fam data with metadata
+combined <- fam_data %>%
+  left_join(metadata_unique, by = c("DNA_nbr" = "DNA_nbr_clean"))
+
+# Add Q data
+combined <- cbind(combined, q_data)
+
+# Filter to sites with at least 10 individuals and get the top 5
+combined_sites <- combined %>% filter(!is.na(SITE))
+
+site_counts <- combined_sites %>%
+  group_by(SITE) %>%
+  summarise(n = n()) %>%
+  filter(n >= 10) %>%
+  arrange(desc(n))
+
+# Get top 5 sites
+top5_sites <- site_counts$SITE[1:5]
+
+# Filter data to top 5 sites
+combined_top5 <- combined_sites %>%
+  filter(SITE %in% top5_sites) %>%
+  filter(!is.na(DATE)) %>%
+  arrange(SITE, DATE)
+
+# Find overall date range for consistent x-axis (from 2016 to 2024 to show all years)
+date_min <- as.Date("2016-01-01")
+date_max <- as.Date("2024-12-31")
+
+# Create individual plots for each site
+plot_list <- list()
+
+for(i in 1:length(top5_sites)) {
+  site <- top5_sites[i]
+  site_data <- combined_top5 %>% filter(SITE == site)
+  
+  # Create the plot with dates on x-axis but labeled by year
+  p <- ggplot(site_data, aes(x = DATE, y = Pop2)) +
+    geom_point(color = "black", size = 1.5, alpha = 0.6) +
+    labs(title = site,
+         x = "Year",
+         y = "Q Score") +
+    ylim(0, 1) +
+    scale_x_date(limits = c(date_min, date_max), 
+                 date_breaks = "2 years", 
+                 date_labels = "%Y") +
+    theme_minimal() +
+    theme(axis.text = element_text(size = 10),
+          axis.title = element_text(size = 12),
+          plot.title = element_text(size = 14, hjust = 0.5, face = "bold"),
+          panel.grid.minor = element_blank())
+  
+  plot_list[[i]] <- p
+}
+
+# Arrange all 5 plots together using patchwork
+combined_plot <- wrap_plots(plot_list, ncol = 3, nrow = 2) +
+  plot_annotation(
+    title = "Q score per site in chronological order",
+    theme = theme(plot.title = element_text(size = 18, hjust = 0.5, face = "bold"))
+  )
+
+print(combined_plot)
+
+# Show site summary
+cat("\nTop 5 sites with sample sizes:\n")
+print(site_counts)
+
+# Show summary for each site
+cat("\n\nSummary by site:\n")
+site_summary <- combined_top5 %>%
+  group_by(SITE) %>%
+  summarise(
+    n = n(),
+    mean_Pop2 = mean(Pop2, na.rm = TRUE),
+    median_Pop2 = median(Pop2, na.rm = TRUE),
+    min_Pop2 = min(Pop2, na.rm = TRUE),
+    max_Pop2 = max(Pop2, na.rm = TRUE),
+    date_range = paste(min(format(DATE, "%Y-%m-%d")), "to", max(format(DATE, "%Y-%m-%d")))
+  )
+print(site_summary)
