@@ -1,0 +1,37 @@
+This is a description of each file present in the peromyscus directory.
+
+add_known_samples_to_vcf was used to add a known genome to the vcf containing all of the samples. 
+We did this because we're lacking one of the parental species from our samples and were hoping to get a clearer results but ran into issues probably due to isolation by distance
+
+alignment_* are the scripts used to align samples to a maniculatus reference genome
+
+demuxlib* are the scripts used to demultiplex libraries 2 and 3, I was provided with library 1 already demultiplexed hence why that code is missing
+
+download_known_samples_from_sra was used to download the known genome from sra to add to the samples (see add_known_samples_to_vcf)
+
+entropy_queuesub_ind999.sh is a looping file that allows me to submit many replicates of entropy with different iteration/k values at the same time
+
+geno_file_from_entropy.sh was used to obtaine a genoest.txt file from entropy
+
+inputdataformat.R was used to convert vcf to mgpl to be used in entropy
+ 
+loop_queuesub_ind999.sh is a looping script that allows me to submit many replicates of entropy with different iteration/k values at the same time  (very similar to entropy_queuesub_ind999.sh)
+
+pca_mess_around_on_top5000_ind999 here i was just looking at PCA and trying to get a working script for it (inputdataformat.R also has a PCA script inside)
+
+r_* are a group of scripts for data visualization
+
+running_admixture script used to run admixture including getting the vcf file formatted to be used in admixture
+
+select_top_5000_SNPs this script takes the 5000 SNPs of interest and selects them from a vcf file. 
+Basically I started with a vcf file with 21k SNPs and went down to a vcf file with only the 5k SNPs of interest 
+(I did this because I could not run entropy on all my 21k SNPs, so I selected the 5k most discriminatory SNPs)
+
+top_5000_SNPs_selection this script runs admixture and selects the top 5000 SNPs based on delta, so the ones with the largesr difference between the two species
+
+variant_calling_* script to do variant calling on demultiplexed libraries
+
+vcf_filtering filters the vcf based on different parameters. 
+
+vcf_to_mgpl.sh this script transforms a vcf file to mgpl, using the inputdatafromat.R script
+
