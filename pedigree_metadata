@@ -1,0 +1,25 @@
+# Load vcftools
+module load vcftools
+
+# Go to your directory
+cd /home/sydt/scratch/entropy_relatedness
+
+# Get individual names
+vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf \
+         --indv \
+         --out genotype_metadata
+
+# Get SNP positions
+vcftools --vcf peromyscus_mac3_Q30_miss0.25_dp3_ind999_maf001.recode.vcf \
+         --freq \
+         --out genotype_metadata
+
+# This creates:
+# - genotype_metadata.idepth (individual names)
+# - genotype_metadata.frq (allele frequencies)
+# - genotype_metadata.log
+
+# Rename 
+mv genotype_metadata.frq allele_frequencies.frq
+mv genotype_metadata.log allele_frequencies.log
+mv genotype_metadata.idepth individual_names.txt
