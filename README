@@ -17,6 +17,8 @@ inputdataformat.R was used to convert vcf to mgpl to be used in entropy
  
 loop_queuesub_ind999.sh is a looping script that allows me to submit many replicates of entropy with different iteration/k values at the same time  (very similar to entropy_queuesub_ind999.sh)
 
+pedigree_metadata created metadata starting from the vcf file
+
 pca_mess_around_on_top5000_ind999 here i was just looking at PCA and trying to get a working script for it (inputdataformat.R also has a PCA script inside)
 
 r_* are a group of scripts for data visualization
