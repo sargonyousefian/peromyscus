@@ -1,0 +1,91 @@
+# ======================================================
+# SCRIPT 1: PCA USING HARD-CALLED GENOTYPES (GT FIELD)
+# ======================================================
+# This script uses the GT field from VCF
+# Result: PC1 = 3.13%
+
+library(vcfR)
+
+# Read VCF
+vcffile <- "peromyscus_clean.vcf"
+cat("Reading VCF file...\n")
+a.vcf <- read.vcfR(vcffile, verbose=FALSE)
+
+# Extract GT field (hard-called genotypes)
+cat("Extracting genotypes (GT field)...\n")
+gt <- extract.gt(a.vcf, element="GT")
+
+cat("Found", nrow(gt), "SNPs and", ncol(gt), "samples\n")
+
+# Convert genotypes to numeric (0, 1, 2)
+cat("Converting genotypes to numeric...\n")
+gt_num <- matrix(NA, nrow=nrow(gt), ncol=ncol(gt))
+
+for(i in 1:nrow(gt)) {
+  for(j in 1:ncol(gt)) {
+    if(!is.na(gt[i,j]) && gt[i,j] != "./." && gt[i,j] != ".|.") {
+      if(gt[i,j] == "0/0" || gt[i,j] == "0|0") {
+        gt_num[i,j] <- 0
+      } else if(gt[i,j] == "0/1" || gt[i,j] == "1/0" || gt[i,j] == "0|1" || gt[i,j] == "1|0") {
+        gt_num[i,j] <- 1
+      } else if(gt[i,j] == "1/1" || gt[i,j] == "1|1") {
+        gt_num[i,j] <- 2
+      }
+    }
+  }
+}
+
+# Filter SNPs with >80% missing
+missing_rate <- rowSums(is.na(gt_num)) / ncol(gt_num)
+keep_snps <- missing_rate < 0.8
+gt_filtered <- gt_num[keep_snps, ]
+cat("Kept", sum(keep_snps), "SNPs out of", nrow(gt_num), "\n")
+
+# Filter individuals with >80% missing
+sample_missing <- colSums(is.na(gt_filtered)) / nrow(gt_filtered)
+keep_samples <- sample_missing < 0.8
+gt_filtered <- gt_filtered[, keep_samples]
+sample_names <- colnames(gt)[keep_samples]
+cat("Kept", sum(keep_samples), "samples out of", ncol(gt_num), "\n")
+
+# Impute missing values with column means
+cat("Imputing missing values...\n")
+for(i in 1:nrow(gt_filtered)) {
+  row_mean <- mean(gt_filtered[i,], na.rm=TRUE)
+  if(!is.na(row_mean)) {
+    gt_filtered[i, is.na(gt_filtered[i,])] <- row_mean
+  }
+}
+
+# Remove invariant SNPs
+cat("Removing invariant SNPs...\n")
+row_var <- apply(gt_filtered, 1, var, na.rm=TRUE)
+keep_variable <- row_var > 0
+gt_filtered <- gt_filtered[keep_variable, ]
+cat("Kept", sum(keep_variable), "variable SNPs out of", length(row_var), "\n")
+
+# Run PCA
+cat("Running PCA on", nrow(gt_filtered), "SNPs and", ncol(gt_filtered), "samples\n")
+pca <- prcomp(t(gt_filtered), scale=TRUE, center=TRUE)
+
+# Variance explained
+var_explained <- (pca$sdev^2 / sum(pca$sdev^2)) * 100
+
+# Save results
+pca_scores <- as.data.frame(pca$x[,1:min(10, ncol(pca$x))])
+colnames(pca_scores) <- paste0("PC", 1:ncol(pca_scores))
+pca_scores$Sample <- sample_names
+write.table(pca_scores, "PCA_results_GT_fixed2.txt", 
+            quote=FALSE, row.names=FALSE)
+
+# Plot
+pdf("PCA_plot_GT_fixed2.pdf", width=10, height=8)
+plot(pca$x[,1], pca$x[,2],
+     xlab=paste0("PC1 (", round(var_explained[1], 2), "%)"),
+     ylab=paste0("PC2 (", round(var_explained[2], 2), "%)"),
+     pch=19, col="darkblue", cex=0.8,
+     main="PCA of Peromyscus (GT-based)")
+dev.off()
+
+cat("PCA completed!\n")
+cat("Variance PC1:", round(var_explained[1], 2), "%\n")
