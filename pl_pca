@@ -1,0 +1,89 @@
+# ======================================================
+# SCRIPT 2: PCA USING GENOTYPE LIKELIHOODS (PL FIELD)
+# ======================================================
+# This script uses point estimates from PL field
+# Result: PC1 = 37.62%
+
+# Set working directory
+setwd("/Users/sargon/Desktop/masters/final_figures")
+
+# Read point estimates from inputdataformat.R output
+cat("Reading point estimates...\n")
+pntest <- read.table("pntest_mean_gl.txt", header=FALSE)
+cat("Point estimates matrix:", nrow(pntest), "SNPs x", ncol(pntest), "individuals\n")
+
+# Read sample names
+sample_names <- read.table("inds_peromyscus_clean.txt", 
+                          header=FALSE, stringsAsFactors=FALSE)$V1
+cat("Number of samples:", length(sample_names), "\n")
+
+# Transpose to individuals x SNPs (prcomp expects individuals as rows)
+pntest_t <- t(pntest)
+cat("Transposed:", nrow(pntest_t), "individuals x", ncol(pntest_t), "SNPs\n")
+
+# Remove invariant SNPs (zero variance)
+cat("Removing invariant SNPs...\n")
+constant_cols <- apply(pntest_t, 2, function(x) var(x, na.rm=TRUE) == 0 | all(is.na(x)))
+pntest_var <- pntest_t[, !constant_cols]
+cat("Kept", ncol(pntest_var), "variable SNPs out of", ncol(pntest_t), "\n")
+
+# Check if any columns are still constant
+if(ncol(pntest_var) == 0) {
+  stop("No variable SNPs found! Check your data.")
+}
+
+# Run PCA (na.action is ignored by prcomp, but we have very few NAs)
+cat("Running PCA...\n")
+pca <- prcomp(pntest_var, center=TRUE, scale=TRUE)
+
+# Variance explained
+var_exp <- (pca$sdev^2 / sum(pca$sdev^2)) * 100
+
+# Extract PCA scores
+pca_scores <- as.data.frame(pca$x)
+colnames(pca_scores) <- paste0("PC", 1:ncol(pca_scores))
+
+# Add sample names
+if(nrow(pca_scores) == length(sample_names)) {
+  pca_scores$Sample <- sample_names
+} else {
+  cat("Note: Some samples were removed due to missing data\n")
+  cat("Samples in PCA:", nrow(pca_scores), "\n")
+  cat("Original samples:", length(sample_names), "\n")
+  pca_scores$Sample <- sample_names[1:nrow(pca_scores)]
+}
+
+# Save results
+write.table(pca_scores, "PCA_results_PL_based.txt", 
+            quote=FALSE, row.names=FALSE)
+write.table(var_exp, "Variance_explained_PL_based.txt", 
+            quote=FALSE, row.names=FALSE)
+
+# Summary
+cat("\n=== PCA Summary ===\n")
+cat("Number of individuals in PCA:", nrow(pca_scores), "\n")
+cat("Number of SNPs used:", ncol(pntest_var), "\n")
+cat("Variance explained by PC1:", round(var_exp[1], 2), "%\n")
+cat("Variance explained by PC2:", round(var_exp[2], 2), "%\n")
+cat("Variance explained by PC3:", round(var_exp[3], 2), "%\n")
+
+# Create plots
+pdf("PCA_plot_PL_based.pdf", width=12, height=10)
+
+# PC1 vs PC2
+plot(pca$x[,1], pca$x[,2],
+     xlab=paste0("PC1 (", round(var_exp[1], 2), "%)"),
+     ylab=paste0("PC2 (", round(var_exp[2], 2), "%)"),
+     pch=19, col="steelblue", cex=0.8,
+     main=paste0("PCA of Peromyscus (PL-based)"))
+
+# Scree plot
+plot(1:min(20, length(var_exp)), var_exp[1:min(20, length(var_exp))],
+     type="b", pch=19, col="red",
+     xlab="Principal Component", ylab="Variance Explained (%)",
+     main="Scree Plot")
+
+dev.off()
+cat("Plot saved to: PCA_plot_PL_based.pdf\n")
+
+cat("\nPCA analysis complete!\n")
