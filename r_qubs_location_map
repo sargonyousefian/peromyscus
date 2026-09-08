@@ -1,0 +1,382 @@
+# ============================================================
+# Queen's University Biological Station (QUBS)
+# Publication-quality locator map
+#
+# Two panels:
+#   A. North America
+#   B. Regional map (~1,000 km around QUBS)
+#
+# Political borders: REMOVED
+# Coastlines:        SHOWN
+# Lakes:             DARK BLUE
+# Rivers:            DARK BLUE
+# QUBS:              SMALL DARK RED DOT
+# North arrow:       REMOVED
+# ============================================================
+
+
+# -----------------------------
+# 1. Packages
+# -----------------------------
+
+packages <- c(
+  "sf",
+  "ggplot2",
+  "dplyr",
+  "rnaturalearth",
+  "rnaturalearthdata",
+  "ggspatial",
+  "patchwork"
+)
+
+to_install <- packages[!packages %in% rownames(installed.packages())]
+
+if (length(to_install) > 0) {
+  install.packages(to_install)
+}
+
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggspatial)
+library(patchwork)
+
+
+# -----------------------------
+# 2. QUBS coordinates
+# -----------------------------
+
+qubs <- data.frame(
+  name = "Queen's University Biological Station",
+  lon  = -76.32,
+  lat  = 44.56
+)
+
+qubs_sf <- st_as_sf(
+  qubs,
+  coords = c("lon", "lat"),
+  crs = 4326
+)
+
+
+# -----------------------------
+# 3. Base geographic data
+# -----------------------------
+
+world <- ne_countries(
+  scale = "medium",
+  returnclass = "sf"
+)
+
+north_america <- world %>%
+  filter(continent == "North America")
+
+
+# -----------------------------
+# 4. Lakes
+# -----------------------------
+
+lakes <- ne_download(
+  scale = 50,
+  type = "lakes",
+  category = "physical",
+  returnclass = "sf"
+)
+
+
+# -----------------------------
+# 5. Rivers
+# -----------------------------
+
+rivers <- ne_download(
+  scale = 50,
+  type = "rivers_lake_centerlines",
+  category = "physical",
+  returnclass = "sf"
+)
+
+
+# -----------------------------
+# 6. Coastline
+# -----------------------------
+
+coastline <- ne_coastline(
+  scale = "medium",
+  returnclass = "sf"
+)
+
+
+# -----------------------------
+# 7. Map extents
+# -----------------------------
+
+# North America
+
+na_bbox <- st_bbox(
+  c(
+    xmin = -170,
+    xmax = -20,
+    ymin = 10,
+    ymax = 75
+  ),
+  crs = st_crs(4326)
+)
+
+
+# Regional map
+
+qubs_aea <- st_transform(
+  qubs_sf,
+  5070
+)
+
+regional_box <- st_buffer(
+  qubs_aea,
+  dist = 1000000
+) %>%
+  st_transform(4326) %>%
+  st_bbox()
+
+
+# -----------------------------
+# 8. Map theme
+# -----------------------------
+
+map_theme <- theme_minimal(base_size = 10) +
+  theme(
+    panel.grid.major = element_line(
+      color = "grey90",
+      linewidth = 0.25
+    ),
+
+    panel.grid.minor = element_blank(),
+
+    axis.title = element_blank(),
+
+    axis.text = element_text(
+      color = "grey30",
+      size = 8
+    ),
+
+    plot.title = element_text(
+      face = "bold",
+      size = 11,
+      hjust = 0
+    ),
+
+    plot.margin = margin(
+      5, 5, 5, 5
+    ),
+
+    legend.position = "none",
+
+    panel.background = element_rect(
+      fill = "white",
+      color = NA
+    ),
+
+    plot.background = element_rect(
+      fill = "white",
+      color = NA
+    )
+  )
+
+
+# ============================================================
+# 9. PANEL A — NORTH AMERICA
+# ============================================================
+
+map_na <- ggplot() +
+
+  # Land
+  geom_sf(
+    data = north_america,
+    fill = "grey92",
+    color = NA
+  ) +
+
+  # Lakes
+  geom_sf(
+    data = lakes,
+    fill = "#7FB8CC",
+    color = NA,
+    alpha = 0.9
+  ) +
+
+  # Rivers
+  geom_sf(
+    data = rivers,
+    color = "#4389A3",
+    linewidth = 0.25,
+    alpha = 0.9
+  ) +
+
+  # Coastline
+  geom_sf(
+    data = coastline,
+    color = "grey45",
+    linewidth = 0.3
+  ) +
+
+  # QUBS white halo
+  geom_sf(
+    data = qubs_sf,
+    color = "white",
+    fill = NA,
+    size = 3.5,
+    linewidth = 1
+  ) +
+
+  # QUBS point
+  geom_sf(
+    data = qubs_sf,
+    color = "#C0392B",
+    fill = "#C0392B",
+    size = 1.6
+  ) +
+
+  coord_sf(
+    xlim = c(
+      na_bbox["xmin"],
+      na_bbox["xmax"]
+    ),
+    ylim = c(
+      na_bbox["ymin"],
+      na_bbox["ymax"]
+    ),
+    expand = FALSE
+  ) +
+
+  labs(
+    title = "A  North America"
+  ) +
+
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.25,
+    text_cex = 0.7,
+    line_width = 0.4
+  ) +
+
+  map_theme
+
+
+# ============================================================
+# 10. PANEL B — REGIONAL MAP
+# ============================================================
+
+map_regional <- ggplot() +
+
+  # Land
+  geom_sf(
+    data = north_america,
+    fill = "grey92",
+    color = NA
+  ) +
+
+  # Lakes
+  geom_sf(
+    data = lakes,
+    fill = "#7FB8CC",
+    color = NA,
+    alpha = 0.9
+  ) +
+
+  # Rivers
+  geom_sf(
+    data = rivers,
+    color = "#4389A3",
+    linewidth = 0.30,
+    alpha = 0.9
+  ) +
+
+  # Coastline
+  geom_sf(
+    data = coastline,
+    color = "grey45",
+    linewidth = 0.35
+  ) +
+
+
+  # QUBS point
+  geom_sf(
+    data = qubs_sf,
+    color = "#C0392B",
+    fill = "#C0392B",
+    size = 1
+  ) +
+
+  # QUBS label
+  geom_sf_text(
+    data = qubs_sf,
+    aes(
+      label = "Queen's University\nBiological Station"
+    ),
+    nudge_x = -1.5,
+    nudge_y =0.8,
+    size = 2.5,
+    fontface = "bold",
+    color = "black"
+  ) +
+
+coord_sf(
+  xlim = c(-83, -70),
+  ylim = c(40, 50),
+  expand = FALSE
+)+
+
+  labs(
+    title = "B  Regional location"
+  ) +
+
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.25,
+    text_cex = 0.7,
+    line_width = 0.4
+  ) +
+
+  map_theme
+
+
+# ============================================================
+# 11. Combine panels
+# ============================================================
+
+final_map <-
+  map_na +
+  map_regional +
+  plot_layout(
+    ncol = 2
+  )
+
+
+# ============================================================
+# 12. Export
+# ============================================================
+
+ggsave(
+  filename = "QUBS_locator_map.pdf",
+  plot = final_map,
+  width = 180,
+  height = 90,
+  units = "mm",
+  device = cairo_pdf
+)
+
+
+ggsave(
+  filename = "QUBS_locator_map.tiff",
+  plot = final_map,
+  width = 180,
+  height = 90,
+  units = "mm",
+  dpi = 600,
+  compression = "lzw"
+)
+
+
+# Display
+final_map
