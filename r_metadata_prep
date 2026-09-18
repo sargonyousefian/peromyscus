@@ -1,0 +1,148 @@
+# ============================================
+# Libraries
+# ============================================
+library(readxl)
+library(dplyr)
+library(stringr)
+library(lubridate)
+
+setwd("/Users/sargon/Desktop/masters/final_figures")
+
+# ============================================
+# 1. Read the ADMIXTURE Q file (K = 2)
+# ============================================
+q_data <- read.table(
+  "peromyscus_clean_admixture_ready.2.Q",
+  header = FALSE
+)
+colnames(q_data) <- c("Pop1", "Pop2")
+
+# ============================================
+# 2. Read the .fam file
+# ============================================
+fam_data <- read.table(
+  "peromyscus_clean_admixture_ready.fam",
+  header = FALSE
+)
+colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
+
+# Extract DNA_nbr from IID: "Peromyscus977_B_2" -> "977"
+fam_data$DNA_nbr_clean <- sub("^Peromyscus([0-9]+).*$", "\\1", fam_data$IID)
+
+# ============================================
+# 3. Read metadata
+# ============================================
+meta <- read_excel("PEROMYSCUS (QUBS)_DNA_AM.xlsx")
+
+# Clean DNA_nbr: "1.0" -> "1"; "980 B" -> "980"
+meta$DNA_nbr_clean <- sub("^([0-9]+).*$", "\\1", as.character(meta$DNA_nbr))
+
+# ============================================
+# 4. Derive year from ID prefix when DATE is missing
+# ============================================
+meta$DATE <- as.Date(meta$DATE, format = "%d-%m-%Y")
+
+# Learn prefix -> year mapping from rows that DO have a date
+prefix_year_map <- meta %>%
+  filter(!is.na(DATE), !is.na(ID)) %>%
+  mutate(
+    ID_prefix = str_sub(ID, 1, 1),
+    YEAR_real = year(DATE)
+  ) %>%
+  count(ID_prefix, YEAR_real) %>%
+  group_by(ID_prefix) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(ID_prefix, YEAR_from_ID = YEAR_real)
+
+print(prefix_year_map)
+
+# Apply the mapping
+meta <- meta %>%
+  mutate(ID_prefix = str_sub(ID, 1, 1)) %>%
+  left_join(prefix_year_map, by = "ID_prefix") %>%
+  mutate(
+    YEAR_effective = if_else(!is.na(DATE), year(DATE), YEAR_from_ID),
+    YEAR_effective = as.integer(YEAR_effective)
+  )
+
+# ============================================
+# 5. Ordinal date (only where DATE exists)
+# ============================================
+meta$ordinal_date <- ifelse(
+  !is.na(meta$DATE),
+  yday(meta$DATE),
+  NA_integer_
+)
+
+# ============================================
+# 6. Collapse SITE into 5 categories
+# ============================================
+meta$SITE_CLEAN <- dplyr::case_when(
+  tolower(meta$SITE) %in% c("qubs", "cabin", "lodges", "tanks") ~ "QUBS",
+  tolower(meta$SITE) == "moor"  ~ "Moores Tract",
+  tolower(meta$SITE) == "cow"   ~ "Cow Island",
+  tolower(meta$SITE) == "blue"  ~ "Blueberry Hill",
+  tolower(meta$SITE) == "red"   ~ "Red",
+  TRUE ~ NA_character_
+)
+
+# ============================================
+# 7. One metadata row per DNA_nbr
+# ============================================
+meta_unique <- meta %>%
+  group_by(DNA_nbr_clean) %>%
+  slice(1) %>%
+  ungroup()
+
+# ============================================
+# 8. Merge fam + metadata (Q is added separately since
+#    .fam and .Q rows are already aligned)
+# ============================================
+combined <- fam_data %>%
+  left_join(meta_unique, by = "DNA_nbr_clean")
+
+combined <- cbind(combined, q_data)
+
+# ============================================
+# 9. Clean factor columns
+# ============================================
+combined$SEX        <- factor(combined$SEX, levels = c("F", "M"))
+combined$SITE_CLEAN <- factor(
+  combined$SITE_CLEAN,
+  levels = c("QUBS", "Moores Tract", "Cow Island", "Blueberry Hill", "Red")
+)
+combined$YEAR_f <- factor(combined$YEAR_effective)
+
+# ============================================
+# 10. Build the model-ready data frame
+#     (keep only rows with SEX, YEAR, SITE present)
+# ============================================
+model_dat <- combined %>%
+  filter(
+    SEX %in% c("F", "M"),
+    !is.na(YEAR_effective),
+    !is.na(SITE_CLEAN)
+  )
+
+cat("Total rows in fam + Q:  ", nrow(combined), "\n")
+cat("Rows in model_dat:      ", nrow(model_dat), "\n")
+cat("Removed (NA sex/year/site):", nrow(combined) - nrow(model_dat), "\n\n")
+
+cat("YEAR breakdown:\n"); print(table(model_dat$YEAR_f, useNA = "ifany"))
+cat("\nSEX breakdown:\n"); print(table(model_dat$SEX, useNA = "ifany"))
+cat("\nSITE breakdown:\n"); print(table(model_dat$SITE_CLEAN, useNA = "ifany"))
+cat("\nordinal_date NAs in model_dat:", sum(is.na(model_dat$ordinal_date)), "\n")
+
+# ============================================
+# 11. Save outputs
+# ============================================
+saveRDS(combined,  "combined_fam_meta_Q.rds")
+saveRDS(model_dat, "model_dat.rds")
+
+write.csv(combined,  "combined_fam_meta_Q.csv",  row.names = FALSE)
+write.csv(model_dat, "model_dat.csv",            row.names = FALSE)
+
+cat("\nSaved:\n")
+cat("  combined_fam_meta_Q.rds / .csv  (all 1144 fam rows)\n")
+cat("  model_dat.rds / .csv            (subset for modelling)\n")
