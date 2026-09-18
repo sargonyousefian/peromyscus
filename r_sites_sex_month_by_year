@@ -1,168 +1,75 @@
 # ============================================
-# Load required libraries
+# Libraries
 # ============================================
-library(readxl)
 library(ggplot2)
 library(dplyr)
-library(stringr)
 library(patchwork)
 library(viridis)
 
 # ============================================
-# Read the ADMIXTURE Q file
+# Load model-ready data
 # ============================================
-q_file <- "/Users/sargon/Desktop/masters/final_figures/peromyscus_clean_admixture_ready.2.Q"
-q_data <- read.table(q_file, header = FALSE)
-colnames(q_data) <- c("Pop1", "Pop2")
+combined <- read.csv("/Users/sargon/Desktop/masters/final_figures/model_dat.csv")
 
-# ============================================
-# Read the .fam file
-# ============================================
-fam_file <- "/Users/sargon/Desktop/masters/final_figures/peromyscus_clean_admixture_ready.fam"
-fam_data <- read.table(fam_file, header = FALSE)
-colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
-
-# Extract DNA_nbr from FAM IID
-fam_data$DNA_nbr <- gsub("^Peromyscus([0-9]+)_.*$", "\\1", fam_data$IID)
-fam_data$DNA_nbr <- as.character(as.numeric(fam_data$DNA_nbr))
-
-# ============================================
-# Read metadata
-# ============================================
-metadata_file <- "/Users/sargon/Desktop/masters/final_figures/PEROMYSCUS (QUBS)_DNA_AM.xlsx"
-metadata <- read_excel(metadata_file)
-
-# ---------------------------------------------------------------
-# Clean DNA_nbr: capture the leading digits and drop everything after.
-# Handles:  "1.0" -> "1"
-#           "980.0" -> "980"
-#           "960 B" -> "960"
-#           "1341 b" -> "1341"
-#           "1341" -> "1341"
-# ---------------------------------------------------------------
-metadata$DNA_nbr_clean <- sub("^([0-9]+).*$", "\\1", as.character(metadata$DNA_nbr))
-
-# Quick sanity check: this should show "1", "2", "3", ... not "10", "20", "30"
-print(head(metadata[, c("DNA_nbr", "DNA_nbr_clean")], 10))
-
-# Extract YEAR and MONTH from DATE
-metadata$YEAR  <- format(metadata$DATE, "%Y")
-metadata$MONTH <- format(metadata$DATE, "%B")
-
-# ============================================
-# Collapse sites into 5 final categories
-# ============================================
-metadata$SITE_CLEAN <- case_when(
-  tolower(metadata$SITE) %in% c("qubs", "cabin", "lodges", "tanks") ~ "QUBS",
-  tolower(metadata$SITE) == "moor"  ~ "Moores Tract",
-  tolower(metadata$SITE) == "cow"   ~ "Cow Island",
-  tolower(metadata$SITE) == "blue"  ~ "Blueberry Hill",
-  tolower(metadata$SITE) == "red"   ~ "Red",
-  TRUE ~ NA_character_
+combined$YEAR       <- factor(combined$YEAR_f)
+combined$SITE_CLEAN <- factor(
+  combined$SITE_CLEAN,
+  levels = c("QUBS", "Moores Tract", "Cow Island", "Blueberry Hill", "Red")
 )
-
-# Remove duplicate DNA_nbr entries in metadata
-metadata_unique <- metadata %>%
-  group_by(DNA_nbr_clean) %>%
-  slice(1) %>%
-  ungroup()
+combined$SEX <- factor(combined$SEX, levels = c("F", "M"))
 
 # ============================================
-# Merge fam data with metadata and Q data
+# Fixed, bold year colours (one per year)
 # ============================================
-combined <- fam_data %>%
-  left_join(metadata_unique, by = c("DNA_nbr" = "DNA_nbr_clean"))
+year_levels <- sort(unique(as.character(combined$YEAR)))
+n_years     <- length(year_levels)
 
-combined <- cbind(combined, q_data)
+year_cols <- viridis(n_years, option = "D")
+names(year_cols) <- year_levels
 
-# Clamp Pop2 to [0, 1] to avoid ggplot boundary warnings
-combined <- combined %>%
-  mutate(Pop2 = pmin(pmax(Pop2, 0), 1))
-
-# Keep only rows with a YEAR
-combined <- combined %>% filter(!is.na(YEAR))
-
-# ---------------------------------------------------------------
-# Sanity check: how many samples survived, and across which years?
-# Should be ~1104 across 2016–2023
-# ---------------------------------------------------------------
-cat("Samples after filtering:", nrow(combined), "\n")
-cat("Unique years:", paste(sort(unique(combined$YEAR)), collapse = ", "), "\n")
-print(table(combined$YEAR, useNA = "ifany"))
+print(year_cols)
 
 # ============================================
 # Shared theme
 # ============================================
 shared_theme <- theme_minimal() +
   theme(
-    axis.text.x  = element_text(size = 10, angle = 45, hjust = 1),
-    axis.text.y  = element_text(size = 10),
-    axis.title   = element_text(size = 13),
-    strip.text   = element_text(size = 11, face = "bold"),
-    legend.position = "none",
+    axis.text.x      = element_text(size = 10, angle = 45, hjust = 1),
+    axis.text.y      = element_text(size = 10),
+    axis.title       = element_text(size = 13),
+    strip.text       = element_text(size = 11, face = "bold"),
+    legend.position  = "none",
     panel.grid.minor = element_blank()
   )
 
 # ============================================
-# GRAPH 1: YEAR (rows) × MONTH (columns)
+# GRAPH 1: YEAR × ORDINAL DATE
+# plain points (no jitter) + dashed faint trendline
 # ============================================
-month_order <- c("January", "February", "March", "April", "May", "June",
-                 "July", "August", "September", "October", "November", "December")
-
-combined_month <- combined %>%
-  filter(!is.na(MONTH)) %>%
-  mutate(MONTH = factor(MONTH, levels = month_order))
-
-month_n <- combined_month %>%
-  group_by(YEAR, MONTH) %>%
-  summarise(n_samples = n(), .groups = "drop")
-
-combined_month <- combined_month %>%
-  left_join(month_n, by = c("YEAR", "MONTH")) %>%
-  filter(!is.na(n_samples)) %>%
-  mutate(show_box = n_samples >= 5)
-
-month_cols <- viridis(length(month_order), option = "D")
-names(month_cols) <- month_order
-
-p_month <- ggplot(combined_month, aes(x = MONTH, y = Pop2, fill = MONTH)) +
-  geom_boxplot(data = subset(combined_month, show_box),
-               alpha = 0.8, outlier.shape = NA, na.rm = TRUE) +
-  geom_jitter(width = 0.15, alpha = 0.3, size = 0.7, color = "black") +
-  scale_fill_manual(values = month_cols, drop = FALSE) +
+p_date <- ggplot(combined, aes(x = ordinal_date, y = Pop2, fill = YEAR)) +
+  geom_point(size = 1.3, shape = 21,
+             colour = "black", stroke = 0.15) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
+              colour = "grey40", linewidth = 0.7,
+              linetype = "dashed", alpha = 0.4) +
+  scale_fill_manual(values = year_cols, drop = FALSE) +
   facet_grid(YEAR ~ ., scales = "free_y", space = "free_y") +
   scale_y_continuous(limits = c(0, 1), breaks = c(0, 1)) +
-  labs(x = "Month", y = "Q score") +
+  scale_x_continuous(breaks = seq(0, 365, 60)) +
+  labs(x = "Ordinal date (day of year)", y = "Q score") +
   shared_theme
 
-print(p_month)
+print(p_date)
 
 # ============================================
-# GRAPH 2: YEAR (rows) × SITE (columns)
+# GRAPH 2: YEAR × SITE (jitter on x only)
 # ============================================
-site_order <- c("QUBS", "Moores Tract", "Cow Island", "Blueberry Hill", "Red")
-
-combined_site <- combined %>%
-  filter(!is.na(SITE_CLEAN)) %>%
-  mutate(SITE_CLEAN = factor(SITE_CLEAN, levels = site_order))
-
-site_n <- combined_site %>%
-  group_by(YEAR, SITE_CLEAN) %>%
-  summarise(n_samples = n(), .groups = "drop")
-
-combined_site <- combined_site %>%
-  left_join(site_n, by = c("YEAR", "SITE_CLEAN")) %>%
-  filter(!is.na(n_samples)) %>%
-  mutate(show_box = n_samples >= 5)
-
-site_cols <- viridis(length(site_order), option = "D")
-names(site_cols) <- site_order
-
-p_site <- ggplot(combined_site, aes(x = SITE_CLEAN, y = Pop2, fill = SITE_CLEAN)) +
-  geom_boxplot(data = subset(combined_site, show_box),
-               alpha = 0.8, outlier.shape = NA, na.rm = TRUE) +
-  geom_jitter(width = 0.15, alpha = 0.3, size = 0.7, color = "black") +
-  scale_fill_manual(values = site_cols, drop = FALSE) +
+p_site <- ggplot(combined, aes(x = SITE_CLEAN, y = Pop2, fill = YEAR)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, na.rm = TRUE,
+               colour = "black") +
+  geom_jitter(width = 0.15, height = 0, size = 0.9,
+              shape = 21, colour = "black", stroke = 0.15) +
+  scale_fill_manual(values = year_cols, drop = FALSE) +
   facet_grid(YEAR ~ ., scales = "free_y", space = "free_y") +
   scale_y_continuous(limits = c(0, 1), breaks = c(0, 1)) +
   labs(x = "Site", y = "Q score") +
@@ -171,27 +78,14 @@ p_site <- ggplot(combined_site, aes(x = SITE_CLEAN, y = Pop2, fill = SITE_CLEAN)
 print(p_site)
 
 # ============================================
-# GRAPH 3: YEAR (rows) × SEX (columns)
+# GRAPH 3: YEAR × SEX (jitter on x only)
 # ============================================
-combined_sex <- combined %>% filter(SEX %in% c("F", "M"))
-
-sex_n <- combined_sex %>%
-  group_by(YEAR, SEX) %>%
-  summarise(n_samples = n(), .groups = "drop")
-
-combined_sex <- combined_sex %>%
-  left_join(sex_n, by = c("YEAR", "SEX")) %>%
-  filter(!is.na(n_samples)) %>%
-  mutate(show_box = n_samples >= 5)
-
-sex_cols <- viridis(2, option = "D")
-names(sex_cols) <- c("F", "M")
-
-p_sex <- ggplot(combined_sex, aes(x = SEX, y = Pop2, fill = SEX)) +
-  geom_boxplot(data = subset(combined_sex, show_box),
-               alpha = 0.8, outlier.shape = NA, na.rm = TRUE) +
-  geom_jitter(width = 0.15, alpha = 0.3, size = 0.7, color = "black") +
-  scale_fill_manual(values = sex_cols, drop = FALSE) +
+p_sex <- ggplot(combined, aes(x = SEX, y = Pop2, fill = YEAR)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, na.rm = TRUE,
+               colour = "black") +
+  geom_jitter(width = 0.15, height = 0, size = 0.9,
+              shape = 21, colour = "black", stroke = 0.15) +
+  scale_fill_manual(values = year_cols, drop = FALSE) +
   facet_grid(YEAR ~ ., scales = "free_y", space = "free_y") +
   scale_y_continuous(limits = c(0, 1), breaks = c(0, 1)) +
   labs(x = "Sex", y = "Q score") +
@@ -200,36 +94,13 @@ p_sex <- ggplot(combined_sex, aes(x = SEX, y = Pop2, fill = SEX)) +
 print(p_sex)
 
 # ============================================
-# Save each plot
+# Save
 # ============================================
-ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_month_year_boxplot.pdf",
-       p_month, width = 12, height = 16)
-
-ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_site_year_boxplot.pdf",
+ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_date_year_bold.pdf",
+       p_date, width = 8, height = 16)
+ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_site_year_bold.pdf",
        p_site, width = 10, height = 16)
-
-ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_sex_year_boxplot.pdf",
+ggsave("/Users/sargon/Desktop/masters/final_figures/Q_by_sex_year_bold.pdf",
        p_sex, width = 6, height = 16)
 
-# ============================================
-# Summary statistics
-# ============================================
-cat("\n========== YEAR × MONTH ==========\n")
-print(combined_month %>%
-  group_by(YEAR, MONTH, .drop = FALSE) %>%
-  summarise(n = n(), mean_Pop2 = mean(Pop2, na.rm = TRUE), .groups = "drop") %>%
-  arrange(YEAR, MONTH))
-
-cat("\n========== YEAR × SITE ==========\n")
-print(combined_site %>%
-  group_by(YEAR, SITE_CLEAN, .drop = FALSE) %>%
-  summarise(n = n(), mean_Pop2 = mean(Pop2, na.rm = TRUE), .groups = "drop") %>%
-  arrange(YEAR, SITE_CLEAN))
-
-cat("\n========== YEAR × SEX ==========\n")
-print(combined_sex %>%
-  group_by(YEAR, SEX, .drop = FALSE) %>%
-  summarise(n = n(), mean_Pop2 = mean(Pop2, na.rm = TRUE), .groups = "drop") %>%
-  arrange(YEAR, SEX))
-
-cat("\n========== DONE! ==========\n")
+cat("\n========== DONE ==========\n")
