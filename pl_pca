@@ -1,89 +1,123 @@
 # ======================================================
-# SCRIPT 2: PCA USING GENOTYPE LIKELIHOODS (PL FIELD)
+# PCA with Q-score colour gradient (viridis) + species legend
 # ======================================================
-# This script uses point estimates from PL field
-# Result: PC1 = 37.62%
 
-# Set working directory
+library(viridis)
+
 setwd("/Users/sargon/Desktop/masters/final_figures")
 
-# Read point estimates from inputdataformat.R output
-cat("Reading point estimates...\n")
-pntest <- read.table("pntest_mean_gl.txt", header=FALSE)
-cat("Point estimates matrix:", nrow(pntest), "SNPs x", ncol(pntest), "individuals\n")
+# ======================================================
+# 1. Point estimates + sample names
+# ======================================================
+pntest <- read.table("pntest_mean_gl.txt", header = FALSE)
+sample_names <- read.table("inds_peromyscus_clean.txt",
+                           header = FALSE, stringsAsFactors = FALSE)$V1
 
-# Read sample names
-sample_names <- read.table("inds_peromyscus_clean.txt", 
-                          header=FALSE, stringsAsFactors=FALSE)$V1
-cat("Number of samples:", length(sample_names), "\n")
-
-# Transpose to individuals x SNPs (prcomp expects individuals as rows)
+# ======================================================
+# 2. PCA
+# ======================================================
 pntest_t <- t(pntest)
-cat("Transposed:", nrow(pntest_t), "individuals x", ncol(pntest_t), "SNPs\n")
-
-# Remove invariant SNPs (zero variance)
-cat("Removing invariant SNPs...\n")
-constant_cols <- apply(pntest_t, 2, function(x) var(x, na.rm=TRUE) == 0 | all(is.na(x)))
+constant_cols <- apply(pntest_t, 2,
+                       function(x) var(x, na.rm = TRUE) == 0 | all(is.na(x)))
 pntest_var <- pntest_t[, !constant_cols]
-cat("Kept", ncol(pntest_var), "variable SNPs out of", ncol(pntest_t), "\n")
 
-# Check if any columns are still constant
-if(ncol(pntest_var) == 0) {
-  stop("No variable SNPs found! Check your data.")
-}
-
-# Run PCA (na.action is ignored by prcomp, but we have very few NAs)
-cat("Running PCA...\n")
-pca <- prcomp(pntest_var, center=TRUE, scale=TRUE)
-
-# Variance explained
+pca <- prcomp(pntest_var, center = TRUE, scale = TRUE)
 var_exp <- (pca$sdev^2 / sum(pca$sdev^2)) * 100
 
-# Extract PCA scores
 pca_scores <- as.data.frame(pca$x)
 colnames(pca_scores) <- paste0("PC", 1:ncol(pca_scores))
+pca_scores$Sample <- sample_names
 
-# Add sample names
-if(nrow(pca_scores) == length(sample_names)) {
-  pca_scores$Sample <- sample_names
+# ======================================================
+# 3. Q scores
+# ======================================================
+q_data <- read.table("peromyscus_clean_admixture_ready.2.Q", header = FALSE)
+colnames(q_data) <- c("Pop1", "Pop2")
+
+fam_data <- read.table("peromyscus_clean_admixture_ready.fam", header = FALSE)
+colnames(fam_data) <- c("FID", "IID", "PAT", "MAT", "SEX_PLINK", "PHENOTYPE")
+q_data$Sample <- fam_data$IID
+
+stopifnot(nrow(pca_scores) == nrow(q_data))
+
+if (all(pca_scores$Sample == q_data$Sample)) {
+  pca_scores$Pop2 <- q_data$Pop2
 } else {
-  cat("Note: Some samples were removed due to missing data\n")
-  cat("Samples in PCA:", nrow(pca_scores), "\n")
-  cat("Original samples:", length(sample_names), "\n")
-  pca_scores$Sample <- sample_names[1:nrow(pca_scores)]
+  pca_scores <- merge(pca_scores, q_data[, c("Sample", "Pop2")],
+                      by = "Sample", all.x = TRUE)
 }
+pca_scores$Pop2 <- pmin(pmax(pca_scores$Pop2, 0), 1)
 
-# Save results
-write.table(pca_scores, "PCA_results_PL_based.txt", 
-            quote=FALSE, row.names=FALSE)
-write.table(var_exp, "Variance_explained_PL_based.txt", 
-            quote=FALSE, row.names=FALSE)
+pca_scores <- pca_scores[order(pca_scores$Pop2), ]
 
-# Summary
-cat("\n=== PCA Summary ===\n")
-cat("Number of individuals in PCA:", nrow(pca_scores), "\n")
-cat("Number of SNPs used:", ncol(pntest_var), "\n")
-cat("Variance explained by PC1:", round(var_exp[1], 2), "%\n")
-cat("Variance explained by PC2:", round(var_exp[2], 2), "%\n")
-cat("Variance explained by PC3:", round(var_exp[3], 2), "%\n")
+# ======================================================
+# 4. Colours
+# ======================================================
+pal <- viridis(100, option = "D")
+col_idx <- cut(pca_scores$Pop2,
+               breaks = seq(0, 1, length.out = 101),
+               include.lowest = TRUE, labels = FALSE)
+point_cols <- pal[col_idx]
 
-# Create plots
-pdf("PCA_plot_PL_based.pdf", width=12, height=10)
+# ======================================================
+# 5. Plot — reserve right margin for legend
+# ======================================================
+par(mar = c(5, 4, 2, 11), xpd = NA)
 
-# PC1 vs PC2
-plot(pca$x[,1], pca$x[,2],
-     xlab=paste0("PC1 (", round(var_exp[1], 2), "%)"),
-     ylab=paste0("PC2 (", round(var_exp[2], 2), "%)"),
-     pch=19, col="steelblue", cex=0.8,
-     main=paste0("PCA of Peromyscus (PL-based)"))
+plot(pca_scores$PC1, pca_scores$PC2,
+     col  = point_cols,
+     pch  = 19,
+     cex  = 0.8,
+     xlab = paste0("PC1 (", round(var_exp[1], 2), "%)"),
+     ylab = paste0("PC2 (", round(var_exp[2], 2), "%)"),
+     main = "")
 
-# Scree plot
+# ======================================================
+# 6. Legend — vertical viridis bar + species names
+# ======================================================
+# Push the legend further right (increase multiplier below)
+x_left   <- par("usr")[2] + 0.10 * diff(par("usr")[1:2])   # was 0.02
+bar_w    <- 0.03  * diff(par("usr")[1:2])
+y_bottom <- par("usr")[3] + 0.20 * diff(par("usr")[3:4])
+y_top    <- par("usr")[3] + 0.80 * diff(par("usr")[3:4])
+
+# Gradient bar
+ys <- seq(y_bottom, y_top, length.out = 101)
+for (i in 1:100) {
+  rect(x_left, ys[i], x_left + bar_w, ys[i + 1],
+       col = pal[i], border = NA, xpd = NA)
+}
+rect(x_left, y_bottom, x_left + bar_w, y_top,
+     col = NA, border = "black", lwd = 0.8, xpd = NA)
+
+# ---- Species labels (SWAPPED) ----
+# Bottom = Pop2 = 0 → P. leucopus
+text(x = x_left + bar_w / 2,
+     y = y_bottom - 0.04 * diff(par("usr")[3:4]),
+     labels = expression(italic("P. leucopus")),
+     adj = c(0.5, 1), cex = 0.9, xpd = NA)
+
+# Top = Pop2 = 1 → P. maniculatus
+text(x = x_left + bar_w / 2,
+     y = y_top + 0.04 * diff(par("usr")[3:4]),
+     labels = expression(italic("P. maniculatus")),
+     adj = c(0.5, 0), cex = 0.9, xpd = NA)
+
+# Reset margin for the scree plot
+par(mar = c(5, 4, 4, 2) + 0.1, xpd = FALSE)
+
+# ======================================================
+# 7. Scree plot
+# ======================================================
 plot(1:min(20, length(var_exp)), var_exp[1:min(20, length(var_exp))],
-     type="b", pch=19, col="red",
-     xlab="Principal Component", ylab="Variance Explained (%)",
-     main="Scree Plot")
+     type = "b", pch = 19, col = "red",
+     xlab = "Principal Component",
+     ylab = "Variance Explained (%)",
+     main = "Scree Plot")
 
-dev.off()
-cat("Plot saved to: PCA_plot_PL_based.pdf\n")
-
-cat("\nPCA analysis complete!\n")
+# ======================================================
+# 8. Summary
+# ======================================================
+cat("PC1:", round(var_exp[1], 2), "%\n")
+cat("PC2:", round(var_exp[2], 2), "%\n")
+cat("PC3:", round(var_exp[3], 2), "%\n")
