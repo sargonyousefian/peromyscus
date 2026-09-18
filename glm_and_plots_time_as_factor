@@ -1,0 +1,108 @@
+# ============================================
+# Libraries
+# ============================================
+library(glmmTMB)
+library(ggplot2)
+library(ggeffects)
+library(patchwork)
+library(MuMIn)
+
+# ============================================
+# Load data
+# ============================================
+model_dat <- readRDS("/Users/sargon/Desktop/masters/final_figures/model_dat.rds")
+
+# ============================================
+# Fit the model
+# ============================================
+set.seed(123)
+beta_pop2 <- glmmTMB(
+  Pop2 ~ ordinal_date + YEAR_f + SEX + (1 | SITE_CLEAN),
+  data = model_dat,
+  family = beta_family(link = "logit"),
+  na.action = na.omit
+)
+summary(beta_pop2)
+
+# R²
+r.squaredGLMM(beta_pop2)
+
+# ============================================
+# Marginal predictions from the model
+# ============================================
+pred_date <- ggpredict(beta_pop2, terms = "ordinal_date [all]")
+pred_year <- ggpredict(beta_pop2, terms = "YEAR_f")
+pred_sex  <- ggpredict(beta_pop2, terms = "SEX")
+pred_site <- ggpredict(beta_pop2, terms = "SITE_CLEAN")
+
+# ============================================
+# Plot 1: ordinal date
+# ============================================
+p_date <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = ordinal_date, y = Pop2),
+              width = 0.5, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_ribbon(data = pred_date,
+              aes(x = x, ymin = conf.low, ymax = conf.high),
+              fill = "red", alpha = 0.15) +
+  geom_line(data = pred_date,
+            aes(x = x, y = predicted),
+            colour = "red", linewidth = 1) +
+  labs(x = "Ordinal date (day of year)",
+       y = "Pop2 ancestry proportion") +
+  theme_bw()
+
+# ============================================
+# Plot 2: year
+# ============================================
+p_year <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = YEAR_f, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_pointrange(data = pred_year,
+                  aes(x = x, y = predicted,
+                      ymin = conf.low, ymax = conf.high),
+                  colour = "red", size = 0.7, linewidth = 0.8) +
+  labs(x = "Year",
+       y = "Pop2 ancestry proportion") +
+  theme_bw()
+
+# ============================================
+# Plot 3: sex
+# ============================================
+p_sex <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = SEX, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_pointrange(data = pred_sex,
+                  aes(x = x, y = predicted,
+                      ymin = conf.low, ymax = conf.high),
+                  colour = "red", size = 0.7, linewidth = 0.8) +
+  labs(x = "Sex",
+       y = "Pop2 ancestry proportion") +
+  theme_bw()
+
+# ============================================
+# Plot 4: site (random effect — shown but not tested)
+# ============================================
+p_site <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = SITE_CLEAN, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_pointrange(data = pred_site,
+                  aes(x = x, y = predicted,
+                      ymin = conf.low, ymax = conf.high),
+                  colour = "red", size = 0.7, linewidth = 0.8) +
+  labs(x = "Site",
+       y = "Pop2 ancestry proportion") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+# ============================================
+# Combine and save
+# ============================================
+combined_plot <- (p_date | p_year) / (p_sex | p_site)
+print(combined_plot)
+
+ggsave("/Users/sargon/Desktop/masters/final_figures/Pop2_model_plots.pdf",
+       combined_plot, width = 12, height = 8)
