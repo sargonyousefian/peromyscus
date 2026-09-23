@@ -1,0 +1,84 @@
+#!/bin/bash
+# alignment_stats.sh — mean depth + mapping rate per library and overall
+# Uses samtools stats (.stats) as the primary source (fast, one file per sample)
+set -euo pipefail
+
+ROOT=${1:-.}
+OUT=alignment_master_summary.txt
+DETAIL=alignment_per_sample.txt
+
+echo "Sample	Library	Total_Reads	Mapped_Reads	Mapping_Rate	Mean_Depth	Genome_Covered_bp" > "$DETAIL"
+
+for lib in library1 library2 library3; do
+    echo "Processing $lib ..." >&2
+    STATS_DIR=$ROOT/$lib/stats
+    [ -d "$STATS_DIR" ] || { echo "  skip: $STATS_DIR not found" >&2; continue; }
+
+    for sf in "$STATS_DIR"/*.stats; do
+        [ -e "$sf" ] || continue
+        sample=$(basename "$sf" .stats)
+
+        # --- parse the SN section ---
+        # total_reads        = "raw total sequences"
+        # mapped_reads       = "reads mapped"
+        # bases_mapped       = "bases mapped"
+        # total_len          = "total length"
+        read -r total mapped bases_mapped total_len < <(
+            awk -F'\t' '
+                /^SN\traw total sequences:/ {t=$3}
+                /^SN\treads mapped:/          {m=$3}
+                /^SN\tbases mapped:/          {b=$3}
+                /^SN\ttotal length:/          {L=$3}
+                END {print t"\t"m"\t"b"\t"L}
+            ' "$sf"
+        )
+
+        if [ -n "${total:-}" ] && [ "${total:-0}" -gt 0 ]; then
+            mr=$(awk -v m="$mapped" -v t="$total" 'BEGIN{printf "%.4f", m/t}')
+        else
+            mr="NA"
+        fi
+
+        # mean depth = bases mapped / total length (reference length)
+        if [ -n "${total_len:-}" ] && [ "${total_len:-0}" -gt 0 ]; then
+            mean_dp=$(awk -v b="$bases_mapped" -v l="$total_len" 'BEGIN{printf "%.4f", b/l}')
+        else
+            mean_dp="NA"
+        fi
+
+        echo -e "${sample}\t${lib}\t${total}\t${mapped}\t${mr}\t${mean_dp}\t${bases_mapped}" >> "$DETAIL"
+    done
+done
+
+# ---- summarize per library and overall ----
+{
+    echo "================================================================"
+    echo " Alignment summary ($(date +%Y-%m-%d))"
+    echo "================================================================"
+    printf "%-10s %-6s %-13s %-13s %-14s\n" "Library" "N" "MeanDepth" "MeanMapRate" "MeanReads"
+    echo "----------------------------------------------------------------"
+
+    awk -F'\t' 'NR>1 && $6!="NA" && $5!="NA" {
+        n[$2]++;
+        dp[$2]+=$6;
+        mr[$2]+=$5;
+        tr[$2]+=$3;
+        n_all++; dp_all+=$6; mr_all+=$5; tr_all+=$3;
+    }
+    END {
+        # deterministic library order
+        split("library1 library2 library3", libs, " ");
+        for (i=1; i<=3; i++) {
+            lib=libs[i];
+            if (lib in n)
+                printf "%-10s %-6d %-13.2f %-13.4f %-14.0f\n",
+                       lib, n[lib], dp[lib]/n[lib], mr[lib]/n[lib], tr[lib]/n[lib];
+        }
+        print "----------------------------------------------------------------";
+        printf "%-10s %-6d %-13.2f %-13.4f %-14.0f\n",
+               "OVERALL", n_all, dp_all/n_all, mr_all/n_all, tr_all/n_all;
+    }' "$DETAIL"
+    echo "================================================================"
+    echo " Per-sample details: $DETAIL"
+    echo "================================================================"
+} | tee "$OUT"
