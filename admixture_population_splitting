@@ -1,0 +1,79 @@
+# classify_populations.R
+qfile  <- "peromyscus_clean_admixture_ready.2.Q"
+sefile <- "peromyscus_clean_admixture_ready.2.Q_se"
+
+# ---- population labels ----
+POP1_NAME <- "P. leucopus"
+POP2_NAME <- "P. maniculatus"
+
+# ---- thresholds ----
+Z         <- 1.96
+UPPER_GAP <- 0.01     # distance from 1 for "pure"  → ci_hi >= 0.99
+LOWER_GAP <- 0.01     # distance from 0 for "pure"  → ci_lo <= 0.01
+
+q  <- as.matrix(read.table(qfile,  header = FALSE))
+se <- as.matrix(read.table(sefile, header = FALSE))
+stopifnot(nrow(q) == nrow(se), ncol(q) == ncol(se))
+
+n   <- nrow(q)
+q1  <- q[, 1]      # P. leucopus ancestry
+se1 <- se[, 1]
+
+ci_lo <- q1 - Z * se1
+ci_hi <- q1 + Z * se1
+
+# group labels named after the species
+group <- ifelse(ci_hi >= 1 - UPPER_GAP, POP1_NAME,
+         ifelse(ci_lo <= 0 + LOWER_GAP, POP2_NAME,
+                "Hybrid"))
+
+both <- which(ci_hi >= 1 - UPPER_GAP & ci_lo <= 0 + LOWER_GAP)
+if (length(both)) group[both] <- "Hybrid"
+
+group <- factor(group, levels = c(POP1_NAME, POP2_NAME, "Hybrid"))
+
+# ---- summary ----
+summ <- data.frame(
+  Group       = levels(group),
+  N           = as.integer(table(group)),
+  Mean_Q_Pop1 = tapply(q1,     group, mean),
+  SD_Q_Pop1   = tapply(q1,     group, sd),
+  Mean_Q_Pop2 = tapply(q[, 2], group, mean),
+  SD_Q_Pop2   = tapply(q[, 2], group, sd),
+  row.names = NULL
+)
+names(summ)[3:6] <- c(
+  paste0("Mean_Q_", POP1_NAME),
+  paste0("SD_Q_",   POP1_NAME),
+  paste0("Mean_Q_", POP2_NAME),
+  paste0("SD_Q_",   POP2_NAME)
+)
+
+cat("==================================================\n")
+cat(" Classification into", POP1_NAME, "/", POP2_NAME, "/ Hybrid\n")
+cat(sprintf(" CI = Q ± %.2f×SE ; pure if ci_hi >= %.2f or ci_lo <= %.2f\n",
+            Z, 1 - UPPER_GAP, LOWER_GAP))
+cat("==================================================\n")
+print(summ, digits = 4)
+cat("\nTotal individuals:", n, "\n")
+cat(sprintf("  %-16s %4d (%.1f%%)\n", POP1_NAME, summ$N[1], 100*summ$N[1]/n))
+cat(sprintf("  %-16s %4d (%.1f%%)\n", POP2_NAME, summ$N[2], 100*summ$N[2]/n))
+cat(sprintf("  %-16s %4d (%.1f%%)\n", "Hybrid",    summ$N[3], 100*summ$N[3]/n))
+cat("==================================================\n")
+
+# ---- per-individual output ----
+out <- data.frame(
+  Individual = seq_len(n),
+  Q_Pop1     = q1,
+  SE_Pop1    = se1,
+  CI_lo      = ci_lo,
+  CI_hi      = ci_hi,
+  Group      = group
+)
+names(out)[2:3] <- c(
+  paste0("Q_",  POP1_NAME),
+  paste0("SE_", POP1_NAME)
+)
+
+write.csv(out, "populations_classified.csv", row.names = FALSE)
+cat("\nPer-individual table: populations_classified.csv\n")
