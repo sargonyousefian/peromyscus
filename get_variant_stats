@@ -1,0 +1,71 @@
+#!/bin/bash
+# vcf_stats.sh — per-individual call rate, per-site call rate, avg MAC, avg MAF
+VCF=${1:-peromyscus_clean.vcf}
+
+echo "=============================================="
+echo " VCF stats: $VCF"
+echo "=============================================="
+
+# ---------- 1. Per-individual call rate ----------
+bcftools query -f '[%SAMPLE\t%GT\n]' "$VCF" | \
+awk '{
+    tot[$1]++;
+    if ($2 !~ /\./) called[$1]++;
+} END {
+    for (s in tot) {
+        cr = called[s]/tot[s];
+        printf "%s\t%.4f\n", s, cr > "per_indv_callrate.txt";
+        sum += cr; n++;
+    }
+    printf "Avg per-individual call rate: %.4f  (n=%d samples)\n", sum/n, n;
+}'
+
+# ---------- 2. Per-site call rate + MAC + MAF (single pass over GT) ----------
+bcftools query -f '%CHROM\t%POS[\t%GT]\n' "$VCF" | \
+awk 'BEGIN{OFS="\t"}
+{
+    # --- call rate: count called alleles ---
+    an = 0;
+    delete ac;
+    for (i = 3; i <= NF; i++) {
+        n_al = split($i, a, /[\/|]/);
+        for (j = 1; j <= n_al; j++) {
+            if (a[j] == ".") continue;
+            an++;
+            ac[a[j]]++;
+        }
+    }
+    if (an == 0) { skip++; next; }
+
+    # --- MAC / MAF: minor allele = smallest count among all alleles ---
+    max1 = -1; max2 = -1;
+    for (al in ac) {
+        if (ac[al] > max1) { max2 = max1; max1 = ac[al]; }
+        else if (ac[al] > max2) { max2 = ac[al]; }
+    }
+    if (max2 < 0) max2 = 0;
+    mac = max2;
+    maf = mac / an;
+
+    # --- call rate for this site (assumes diploid, 2 alleles per sample) ---
+    n_samples = (NF - 2);
+    cr_site = an / (2 * n_samples);
+    if (cr_site > 1) cr_site = 1;
+
+    print $1, $2, cr_site, mac, maf > "per_site_stats.txt";
+
+    cr_sum += cr_site; cr_n++;
+    mac_sum += mac;    maf_sum += maf;
+}
+END {
+    printf "Avg per-site call rate: %.4f  (n=%d sites)\n", cr_sum/cr_n, cr_n;
+    printf "Avg MAC: %.4f\n", mac_sum/cr_n;
+    printf "Avg MAF: %.4f\n", maf_sum/cr_n;
+    if (skip) printf "  (skipped %d sites with no called genotypes)\n", skip;
+}'
+
+echo "=============================================="
+echo " Detailed files written:"
+echo "   per_indv_callrate.txt   sample, call_rate"
+echo "   per_site_stats.txt      chrom, pos, call_rate, MAC, MAF"
+echo "=============================================="
