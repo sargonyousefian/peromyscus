@@ -1,0 +1,124 @@
+### i use year as both continuos and categgorical. I scale the year 1-8 to use it as a fixed effect and also use year as a random effect (2016-2023)
+# ============================================
+# Libraries
+# ============================================
+library(glmmTMB)
+library(ggplot2)
+library(ggeffects)
+library(patchwork)
+library(MuMIn)
+
+# ============================================
+# Load data
+# ============================================
+model_dat <- readRDS("/Users/sargon/Desktop/masters/final_figures/model_dat.rds")
+
+# ============================================
+# Create year variables
+# ============================================
+model_dat$YEAR_f   <- factor(model_dat$YEAR_f)                      # 2016..2023
+model_dat$YEAR_num <- as.numeric(as.character(model_dat$YEAR_f))    # 2016..2023 numeric
+model_dat$YEAR_c   <- model_dat$YEAR_num - min(model_dat$YEAR_num) + 1  # 1..8
+
+# ============================================
+# Fit the model
+# ============================================
+set.seed(123)
+beta_pop2 <- glmmTMB(
+  Pop2 ~ ordinal_date + YEAR_c + SEX + (1 | YEAR_f) + (1 | SITE_CLEAN),
+  data = model_dat,
+  family = beta_family(link = "logit"),
+  na.action = na.omit
+)
+summary(beta_pop2)
+
+# R²
+r.squaredGLMM(beta_pop2)
+
+# ============================================
+# Marginal predictions (95% CI)
+# ============================================
+pred_date <- ggpredict(beta_pop2, terms = "ordinal_date [all]", ci_level = 0.95)
+pred_year <- ggpredict(beta_pop2, terms = "YEAR_c [1:8]",       ci_level = 0.95)
+pred_sex  <- ggpredict(beta_pop2, terms = "SEX",                ci_level = 0.95)
+pred_site <- ggpredict(beta_pop2, terms = "SITE_CLEAN",
+                       type = "random", ci_level = 0.95)
+
+# ============================================
+# Plot 1: ordinal date
+# ============================================
+p_date <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = ordinal_date, y = Pop2),
+              width = 0.5, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_ribbon(data = pred_date,
+              aes(x = x, ymin = conf.low, ymax = conf.high),
+              fill = "red", alpha = 0.15) +
+  geom_line(data = pred_date,
+            aes(x = x, y = predicted),
+            colour = "red", linewidth = 1) +
+  labs(x = "Ordinal date",
+       y = "Q score") +
+  theme_bw()
+
+# ============================================
+# Plot 2: year (continuous 1-8, labelled 2016-2023)
+# ============================================
+p_year <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = YEAR_c, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_ribbon(data = pred_year,
+              aes(x = x, ymin = conf.low, ymax = conf.high),
+              fill = "red", alpha = 0.15) +
+  geom_line(data = pred_year,
+            aes(x = x, y = predicted),
+            colour = "red", linewidth = 1) +
+  scale_x_continuous(breaks = 1:8, labels = 2016:2023) +
+  labs(x = "Year",
+       y = "Q score") +
+  theme_bw()
+
+# ============================================
+# Plot 3: sex (95% CI)
+# ============================================
+p_sex <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = SEX, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_errorbar(data = pred_sex,
+                aes(x = x, ymin = conf.low, ymax = conf.high),
+                width = 0.1, colour = "red", linewidth = 0.8) +
+  geom_point(data = pred_sex,
+             aes(x = x, y = predicted),
+             colour = "red", size = 3) +
+  labs(x = "Sex",
+       y = "Q score") +
+  theme_bw()
+
+# ============================================
+# Plot 4: site (random-effect predictions with 95% CI)
+# ============================================
+p_site <- ggplot() +
+  geom_jitter(data = model_dat, aes(x = SITE_CLEAN, y = Pop2),
+              width = 0.15, height = 0.01, alpha = 0.3,
+              shape = 21, fill = "grey60", size = 1.8) +
+  geom_errorbar(data = pred_site,
+                aes(x = x, ymin = conf.low, ymax = conf.high),
+                width = 0.1, colour = "red", linewidth = 0.8) +
+  geom_point(data = pred_site,
+             aes(x = x, y = predicted),
+             colour = "red", size = 3) +
+  labs(x = "Site",
+       y = "Q score") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+# ============================================
+# Combine and save
+# ============================================
+combined_plot <- (p_date | p_year) / (p_sex | p_site)
+print(combined_plot)
+
+ggsave("/Users/sargon/Desktop/masters/final_figures/Pop2_model_plots.pdf",
+       combined_plot, width = 12, height = 8)
